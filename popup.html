@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>食べログ / ホットペッパー対応 リスト取得ツール</title>
+  <style>
+    :root {
+      --bg: #0d0d12;
+      --surface: #16161f;
+      --surface2: #1e1e2a;
+      --border: #2a2a3c;
+      --accent: #ff6b35;
+      --accent2: #ff9f00;
+      --green: #3dd68c;
+      --red: #ff5757;
+      --yellow: #ffd166;
+      --text: #eeeef5;
+      --muted: #7878a0;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      width: 380px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+      font-size: 12px;
+    }
+
+    /* ── ヘッダー ── */
+    .header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-icon {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      flex-shrink: 0;
+    }
+
+    .header-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .header-sub {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    /* ── セクション共通 ── */
+    .section {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 7px;
+    }
+
+    /* ── 件数スライダー ── */
+    .max-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type=range] {
+      flex: 1;
+      accent-color: var(--accent);
+      height: 4px;
+    }
+
+    .max-val {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      min-width: 46px;
+      text-align: right;
+    }
+
+    /* ── ステータスバー ── */
+    .status-bar {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: flex-start;
+      gap: 9px;
+      min-height: 52px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 3px;
+      background: var(--muted);
+      transition: background .3s;
+    }
+
+    .dot.idle {
+      background: var(--muted);
+    }
+
+    .dot.running {
+      background: var(--accent);
+      animation: blink 1s infinite;
+    }
+
+    .dot.done {
+      background: var(--green);
+    }
+
+    .dot.error {
+      background: var(--red);
+    }
+
+    @keyframes blink {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: .3
+      }
+    }
+
+    .status-body {
+      flex: 1;
+      line-height: 1.55;
+    }
+
+    .status-main {
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .status-sub {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+
+    /* ── プログレスバー ── */
+    .progress-wrap {
+      background: var(--surface2);
+      border-radius: 4px;
+      overflow: hidden;
+      height: 6px;
+      margin-top: 8px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      width: 0%;
+      transition: width .4s ease;
+      border-radius: 4px;
+    }
+
+    /* ── ログ ── */
+    .log-scroll {
+      height: 80px;
+      overflow-y: auto;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 10px;
+      font-family: 'Menlo', 'Consolas', monospace;
+      color: var(--muted);
+    }
+
+    .log-scroll::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    .log-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+    }
+
+    .log-line {
+      line-height: 1.6;
+    }
+
+    .log-line.info {
+      color: var(--muted);
+    }
+
+    .log-line.good {
+      color: var(--green);
+    }
+
+    .log-line.warn {
+      color: var(--yellow);
+    }
+
+    .log-line.err {
+      color: var(--red);
+    }
+
+    /* ── プレビューリスト ── */
+    .preview-scroll {
+      max-height: 140px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--surface2);
+    }
+
+    .preview-scroll::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    .preview-scroll::-webkit-scrollbar-thumb {
+      background: var(--border);
+    }
+
+    .preview-item {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .preview-item:last-child {
+      border-bottom: none;
+    }
+
+    .pi-name {
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pi-meta {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .pi-phone {
+      color: var(--green);
+    }
+
+    /* ── ボタン ── */
+    .btn-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all .15s;
+    }
+
+    .btn:disabled {
+      opacity: .35;
+      cursor: not-allowed;
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+    }
+
+    .btn-start:not(:disabled):hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
+    .btn-stop {
+      background: var(--red);
+      color: #fff;
+    }
+
+    .btn-stop:not(:disabled):hover {
+      filter: brightness(1.1);
+    }
+
+    .btn-dl {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-dl:not(:disabled):hover {
+      border-color: var(--green);
+      color: var(--green);
+    }
+
+    /* ── フッター ── */
+    .footer {
+      padding: 8px 14px 10px;
+      font-size: 10px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ヘッダー -->
+  <div class="header">
+    <div class="header-icon">🍽</div>
+    <div>
+      <div class="header-title">食べログ / ホットペッパー対応 リスト取得ツール</div>
+      <div class="header-sub">食べログ・ホットペッパー詳細クロール対応</div>
+    </div>
+  </div>
+
+  <!-- 設定 -->
+  <div class="section hidden">
+    <div class="label">最大取得件数</div>
+    <div class="max-row">
+      <input type="range" id="maxSlider" min="10" max="300" step="10" value="300" />
+      <div class="max-val" id="maxVal">上限なし</div>
+    </div>
+  </div>
+
+  <!-- ステータス -->
+  <div class="section">
+    <div class="label">ステータス</div>
+    <div class="status-bar">
+      <div class="dot idle" id="dot"></div>
+      <div class="status-body">
+        <div class="status-main" id="statusMain">対応サイトの検索結果ページを開いてください</div>
+        <div class="status-sub" id="statusSub">食べログ・ホットペッパー対応</div>
+      </div>
+    </div>
+    <div class="progress-wrap" id="progressWrap" style="margin-top:8px">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
+  <!-- ログ -->
+  <div class="section">
+    <div class="label">取得ログ</div>
+    <div class="log-scroll" id="logScroll"></div>
+  </div>
+
+  <!-- ボタン -->
+  <div class="section">
+    <div class="btn-row">
+      <button class="btn btn-start" id="startBtn">▶ 取得開始</button>
+      <button class="btn btn-stop" id="stopBtn" disabled>■ 停止</button>
+      <button class="btn btn-dl" id="dlBtn" disabled>⬇ CSV</button>
+    </div>
+  </div>
+
+  <!-- プレビュー -->
+  <div class="section" id="previewSection" style="display:none">
+    <div class="label">取得データ（最新30件）</div>
+    <div class="preview-scroll" id="previewList"></div>
+  </div>
+
+  <div class="footer">アクセス間隔 1.5秒 · 詳細ページから電話番号・住所を取得</div>
+
+  <script src="src/popup.js"></script>
+</body>
+
+</html>
