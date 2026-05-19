@@ -8,6 +8,8 @@
  * - 進捗を popup.js にブロードキャスト
  */
 
+importScripts('normalizers/businessHoursNormalizer.js');
+
 // ============================================================
 // 定数
 // ============================================================
@@ -89,7 +91,7 @@ function showNotification(title, message) {
 
 /** CSV 生成 */
 function generateCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'business_hours', 'url', 'source'];
+  const headers = ['name', 'genre', 'address', 'phone', 'raw_business_hours', 'normalized_business_hours', 'normalized_closed_days', 'business_hours_note', 'url', 'source'];
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
@@ -226,7 +228,20 @@ async function fetchAndParseDetail(link, siteType) {
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
       phone = phone.replace(/[^\d\-]/g, '');
       businessHours = businessHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-      return { name, genre, address, phone, business_hours: businessHours, url: link, source: 'tabelog' };
+      
+      const normalized = normalizeBusinessHours(businessHours);
+      return { 
+        name, 
+        genre, 
+        address, 
+        phone, 
+        raw_business_hours: normalized.raw_business_hours,
+        normalized_business_hours: normalized.normalized_business_hours,
+        normalized_closed_days: normalized.normalized_closed_days,
+        business_hours_note: normalized.business_hours_note,
+        url: link, 
+        source: 'tabelog' 
+      };
     } else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || doc.title.split('|')[0].trim();
@@ -268,10 +283,34 @@ async function fetchAndParseDetail(link, siteType) {
       }
       combinedHours = combinedHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-      return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
+      const normalized = normalizeBusinessHours(combinedHours);
+      return { 
+        name, 
+        genre, 
+        address, 
+        phone, 
+        raw_business_hours: normalized.raw_business_hours,
+        normalized_business_hours: normalized.normalized_business_hours,
+        normalized_closed_days: normalized.normalized_closed_days,
+        business_hours_note: normalized.business_hours_note,
+        url: link, 
+        source: 'hotpepper' 
+      };
     }
   } catch(e) {
-    return { name: '', genre: '', address: '', phone: '', business_hours: '', url: link, source: siteType, _error: e.message };
+    return { 
+      name: '', 
+      genre: '', 
+      address: '', 
+      phone: '', 
+      raw_business_hours: '',
+      normalized_business_hours: '',
+      normalized_closed_days: '不定休',
+      business_hours_note: `詳細取得・解析エラー: ${e.message}`,
+      url: link, 
+      source: siteType, 
+      _error: e.message 
+    };
   }
 }
 

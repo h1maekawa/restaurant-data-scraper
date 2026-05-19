@@ -76,12 +76,24 @@ function renderPreview(data) {
   items.forEach(r => {
     const el = document.createElement('div');
     el.className = 'preview-item';
+    
+    let hoursPreview = '';
+    if (r.normalized_business_hours) {
+      hoursPreview += `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 ${esc(r.normalized_business_hours.replace(/\n/g, ' | '))}</div>`;
+    }
+    if (r.normalized_closed_days) {
+      hoursPreview += `<div class="pi-closed" style="font-size: 10px; color: var(--red); margin-top: 1px;">📅 定休日: ${esc(r.normalized_closed_days)}</div>`;
+    }
+    if (r.business_hours_note) {
+      hoursPreview += `<div class="pi-note" style="font-size: 9px; color: var(--yellow); margin-top: 1px; opacity: 0.8;">📝 ${esc(r.business_hours_note.replace(/\n/g, ' | '))}</div>`;
+    }
+
     el.innerHTML = `
       <div class="pi-name">${esc(r.name)}</div>
       <div class="pi-meta">
         ${r.address ? esc(r.address) : '<span style="opacity:.5">住所なし</span>'}
         ${r.phone ? `<span class="pi-phone"> · 📞 ${esc(r.phone)}</span>` : ''}
-        ${r.business_hours ? `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 ${esc(r.business_hours)}</div>` : ''}
+        ${hoursPreview}
       </div>
     `;
     previewList.appendChild(el);
@@ -99,7 +111,7 @@ function esc(s) {
 // CSV 生成・ダウンロード
 // ============================================================
 function toCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'business_hours', 'url', 'source'];
+  const headers = ['name', 'genre', 'address', 'phone', 'raw_business_hours', 'normalized_business_hours', 'normalized_closed_days', 'business_hours_note', 'url', 'source'];
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
