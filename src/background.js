@@ -76,13 +76,12 @@ function showNotification(title, message) {
   const notificationId = 'tabelog_crawl_' + Date.now();
   chrome.notifications.create(notificationId, {
     type: 'basic',
-    iconUrl: chrome.runtime.getURL('icons/icon128.png'), // More reliable in MV3
+    iconUrl: 'icons/icon128.png',
     title: title,
-    message: message,
-    priority: 2
+    message: message
   }, (id) => {
     if (chrome.runtime.lastError) {
-      console.error('[BG] Notification Error:', chrome.runtime.lastError);
+      console.error('[BG] Notification Error:', chrome.runtime.lastError.message);
     } else {
       console.log('[BG] Notification shown:', id);
     }
