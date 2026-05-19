@@ -247,19 +247,7 @@ async function fetchAndParseDetail(link, siteType) {
       phone = phone.replace(/[^\d\-]/g, '');
       businessHours = businessHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
       
-      const normalized = normalizeBusinessHours(businessHours);
-      return { 
-        name, 
-        genre, 
-        address, 
-        phone, 
-        raw_business_hours: normalized.raw_business_hours,
-        normalized_business_hours: normalized.normalized_business_hours,
-        normalized_closed_days: normalized.normalized_closed_days,
-        business_hours_note: normalized.business_hours_note,
-        url: link, 
-        source: 'tabelog' 
-      };
+      return { name, genre, address, phone, business_hours: businessHours, url: link, source: 'tabelog' };
     } else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || doc.title.split('|')[0].trim();
@@ -301,34 +289,10 @@ async function fetchAndParseDetail(link, siteType) {
       }
       combinedHours = combinedHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-      const normalized = normalizeBusinessHours(combinedHours);
-      return { 
-        name, 
-        genre, 
-        address, 
-        phone, 
-        raw_business_hours: normalized.raw_business_hours,
-        normalized_business_hours: normalized.normalized_business_hours,
-        normalized_closed_days: normalized.normalized_closed_days,
-        business_hours_note: normalized.business_hours_note,
-        url: link, 
-        source: 'hotpepper' 
-      };
+      return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
     }
   } catch(e) {
-    return { 
-      name: '', 
-      genre: '', 
-      address: '', 
-      phone: '', 
-      raw_business_hours: '',
-      normalized_business_hours: '',
-      normalized_closed_days: '不定休',
-      business_hours_note: `詳細取得・解析エラー: ${e.message}`,
-      url: link, 
-      source: siteType, 
-      _error: e.message 
-    };
+    return { name: '', genre: '', address: '', phone: '', business_hours: '', url: link, source: siteType, _error: e.message };
   }
 }
 
@@ -429,7 +393,20 @@ async function runCrawl(tabId) {
         try {
           const detail = await execInTab(tabId, fetchAndParseDetail, [link, siteType]);
           if (detail && detail.name) {
-            task.results.push(detail);
+            const normalized = normalizeBusinessHours(detail.business_hours || '');
+            const finalDetail = {
+              name: detail.name,
+              genre: detail.genre,
+              address: detail.address,
+              phone: detail.phone,
+              raw_business_hours: normalized.raw_business_hours,
+              normalized_business_hours: normalized.normalized_business_hours,
+              normalized_closed_days: normalized.normalized_closed_days,
+              business_hours_note: normalized.business_hours_note,
+              url: detail.url,
+              source: detail.source
+            };
+            task.results.push(finalDetail);
             collected++;
             broadcast(tabId, 'PROGRESS', {
               collected,
