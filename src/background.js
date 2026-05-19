@@ -8,7 +8,7 @@
  * - 進捗を popup.js にブロードキャスト
  */
 
-importScripts('normalizers/businessHoursNormalizer.js');
+importScripts('src/normalizers/businessHoursNormalizer.js');
 
 // ============================================================
 // 定数
