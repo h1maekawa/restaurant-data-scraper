@@ -1,21 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "食べログ専用 飲食店リスト取得ツール",
+  "name": "食べログ・ホットペッパー対応 飲食店リスト取得ツール",
   "version": "2.0.0",
-  "description": "食べログの検索結果から店舗情報を自動取得してCSVダウンロード",
+  "description": "検索結果から店舗情報を自動取得してCSVダウンロード",
   "permissions": [
     "activeTab",
     "scripting",
     "tabs",
     "storage",
     "notifications",
-    "downloads"
+    "downloads",
+    "offscreen"
   ],
   "host_permissions": [
     "https://tabelog.com/*",
     "https://www.hotpepper.jp/*",
-    "https://hotpepper.jp/*",
-    "https://www.google.com/maps/*"
+    "https://hotpepper.jp/*"
   ],
   "background": {
     "service_worker": "src/background.js"
@@ -28,18 +28,6 @@
       "128": "icons/icon128.png"
     }
   },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://tabelog.com/*",
-        "https://www.hotpepper.jp/*",
-        "https://hotpepper.jp/*",
-        "https://www.google.com/maps/*"
-      ],
-      "js": ["src/content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "icons": {
     "16":  "icons/icon16.png",
     "48":  "icons/icon48.png",
