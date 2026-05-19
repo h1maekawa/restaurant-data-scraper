@@ -89,6 +89,25 @@ function showNotification(title, message) {
   });
 }
 
+/** Service Worker の自動終了を防ぐハートビート */
+function startKeepAlive(tabId) {
+  const task = activeTasks.get(tabId);
+  if (!task) return;
+
+  const intervalId = setInterval(async () => {
+    if (!task.running) {
+      clearInterval(intervalId);
+      return;
+    }
+    try {
+      // 軽量なAPIを呼び出して Service Worker をアクティブに維持
+      await chrome.runtime.getPlatformInfo();
+    } catch (e) {
+      // エラーは無視
+    }
+  }, 10000); // 10秒ごと
+}
+
 /** CSV 生成 */
 function generateCSV(data) {
   const headers = ['name', 'genre', 'address', 'phone', 'raw_business_hours', 'normalized_business_hours', 'normalized_closed_days', 'business_hours_note', 'url', 'source'];
@@ -359,6 +378,16 @@ function getSiteType(url) {
 async function runCrawl(tabId) {
   const task = activeTasks.get(tabId);
   if (!task) return;
+
+  // タブの自動破棄 (休止状態) を無効化してバックグラウンド停止を防ぐ
+  try {
+    await chrome.tabs.update(tabId, { autoDiscardable: false });
+  } catch (e) {
+    console.warn('[BG] Failed to set autoDiscardable:', e);
+  }
+
+  // Service Worker のアイドル終了を防ぐハートビートを開始
+  startKeepAlive(tabId);
 
   let collected = 0;
   let pageNum = 1;
