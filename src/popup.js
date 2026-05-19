@@ -81,6 +81,7 @@ function renderPreview(data) {
       <div class="pi-meta">
         ${r.address ? esc(r.address) : '<span style="opacity:.5">住所なし</span>'}
         ${r.phone ? `<span class="pi-phone"> · 📞 ${esc(r.phone)}</span>` : ''}
+        ${r.business_hours ? `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 ${esc(r.business_hours)}</div>` : ''}
       </div>
     `;
     previewList.appendChild(el);
@@ -98,7 +99,7 @@ function esc(s) {
 // CSV 生成・ダウンロード
 // ============================================================
 function toCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'url', 'source'];
+  const headers = ['name', 'genre', 'address', 'phone', 'business_hours', 'url', 'source'];
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))

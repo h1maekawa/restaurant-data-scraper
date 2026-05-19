@@ -89,7 +89,7 @@ function showNotification(title, message) {
 
 /** CSV 生成 */
 function generateCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'url', 'source'];
+  const headers = ['name', 'genre', 'address', 'phone', 'business_hours', 'url', 'source'];
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
@@ -211,25 +211,34 @@ async function fetchAndParseDetail(link, siteType) {
       let realPhone = '';
       let reservePhone = '';
       let fallbackPhone = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
+      let businessHours = '';
       doc.querySelectorAll('th').forEach(th => {
         const t = th.textContent.trim();
         if (t === 'ジャンル') genre = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
         if (t === '電話番号') realPhone = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('予約・お問い合わせ') || t.includes('予約')) reservePhone = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('営業時間') || t.includes('定休日')) {
+          businessHours = th.nextElementSibling?.textContent?.trim() || '';
+        }
       });
       phone = realPhone || reservePhone || fallbackPhone;
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
       phone = phone.replace(/[^\d\-]/g, '');
-      return { name, genre, address, phone, url: link, source: 'tabelog' };
+      businessHours = businessHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+      return { name, genre, address, phone, business_hours: businessHours, url: link, source: 'tabelog' };
     } else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || doc.title.split('|')[0].trim();
+      let businessHours = '';
+      let regularHoliday = '';
       shopInner.querySelectorAll('th').forEach(th => {
         const t = th.textContent.trim();
         if (t === '店名' && (!name || name === doc.title.split('|')[0].trim())) name = th.nextElementSibling?.textContent?.trim() || name;
         if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('電話') && !phone) phone = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('営業時間')) businessHours = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('定休日')) regularHoliday = th.nextElementSibling?.textContent?.trim() || '';
       });
       if (!address) address = shopInner.querySelector('.shopDetailInfoAddress')?.textContent?.trim() || shopInner.querySelector('.address')?.textContent?.trim() || '';
       if (!phone) {
@@ -248,10 +257,21 @@ async function fetchAndParseDetail(link, siteType) {
       address = address.replace(/地図を見る/g, '').replace(/\s+/g, ' ').replace(/\n/g, '').trim();
       phone = phone.replace(/[^\d\-]/g, '');
       name = name.replace(/\n/g, '').trim();
-      return { name, genre, address, phone, url: link, source: 'hotpepper' };
+
+      let combinedHours = '';
+      if (businessHours && regularHoliday) {
+        combinedHours = `【営業時間】${businessHours} 【定休日】${regularHoliday}`;
+      } else if (businessHours) {
+        combinedHours = businessHours;
+      } else if (regularHoliday) {
+        combinedHours = `【定休日】${regularHoliday}`;
+      }
+      combinedHours = combinedHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+      return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
     }
   } catch(e) {
-    return { name: '', genre: '', address: '', phone: '', url: link, source: siteType, _error: e.message };
+    return { name: '', genre: '', address: '', phone: '', business_hours: '', url: link, source: siteType, _error: e.message };
   }
 }
 
