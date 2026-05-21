@@ -110,32 +110,52 @@ async function fetchAndParseDetail(link, siteType) {
     let address = '';
     let phone = '';
 
+    // ==========================================
+    // 食べログの解析ロジック
+    // ==========================================
     if (siteType === 'tabelog') {
       name = doc.querySelector('.display-name')?.textContent?.trim() || doc.title.split('|')[0].trim();
       address = doc.querySelector('p.rstinfo-table__address')?.textContent?.trim() || '';
       let realPhone = '';
       let reservePhone = '';
       let fallbackPhone = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
-      let businessHours = '';
+
+      // 営業時間と定休日を別々の変数で確実にキャッチする（上書きバグの修正）
+      let tHours = '';
+      let tClosed = '';
+
       doc.querySelectorAll('th').forEach(th => {
         const t = th.textContent.trim();
         if (t === 'ジャンル') genre = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
         if (t === '電話番号') realPhone = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('予約・お問い合わせ') || t.includes('予約')) reservePhone = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('営業時間') || t.includes('定休日')) businessHours = th.nextElementSibling?.textContent?.trim() || '';
+        if (t === '営業時間') tHours = th.nextElementSibling?.textContent?.trim() || '';
+        if (t === '定休日') tClosed = th.nextElementSibling?.textContent?.trim() || '';
       });
+
       phone = realPhone || reservePhone || fallbackPhone;
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
       phone = phone.replace(/[^\d\-]/g, '');
-      businessHours = businessHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-      return { name, genre, address, phone, business_hours: businessHours, url: link, source: 'tabelog' };
-    } else if (siteType === 'hotpepper') {
+      // 正規化フィルターが1発で定休日と時間を分離できるように、明示的な見出しを付けて結合
+      let combinedText = '';
+      if (tHours) combinedText += `【営業時間】${tHours} `;
+      if (tClosed) combinedText += `【定休日】${tClosed}`;
+      combinedText = combinedText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+      return { name, genre, address, phone, business_hours: combinedText, url: link, source: 'tabelog' };
+    }
+
+    // ==========================================
+    // ホットペッパーの解析ロジック（完全復活）
+    // ==========================================
+    else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || doc.title.split('|')[0].trim();
       let businessHours = '';
       let regularHoliday = '';
+
       shopInner.querySelectorAll('th').forEach(th => {
         const t = th.textContent.trim();
         if (t === '店名' && (!name || name === doc.title.split('|')[0].trim())) name = th.nextElementSibling?.textContent?.trim() || name;
@@ -144,10 +164,12 @@ async function fetchAndParseDetail(link, siteType) {
         if (t.includes('営業時間')) businessHours = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('定休日')) regularHoliday = th.nextElementSibling?.textContent?.trim() || '';
       });
+
       if (!address) address = shopInner.querySelector('.shopDetailInfoAddress')?.textContent?.trim() || shopInner.querySelector('.address')?.textContent?.trim() || '';
       if (!phone) {
         phone = shopInner.querySelector('.shopDetailInfoTel')?.textContent?.trim() || shopInner.querySelector('.tel')?.textContent?.trim() || shopInner.querySelector('a[href^="tel:"]')?.textContent?.trim() || '';
       }
+
       if (!phone || phone.includes('電話番号を表示する')) {
         try {
           const telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
@@ -163,13 +185,8 @@ async function fetchAndParseDetail(link, siteType) {
       name = name.replace(/\n/g, '').trim();
 
       let combinedHours = '';
-      if (businessHours && regularHoliday) {
-        combinedHours = `【営業時間】${businessHours} 【定休日】${regularHoliday}`;
-      } else if (businessHours) {
-        combinedHours = businessHours;
-      } else if (regularHoliday) {
-        combinedHours = `【定休日】${regularHoliday}`;
-      }
+      if (businessHours) combinedHours += `【営業時間】${businessHours} `;
+      if (regularHoliday) combinedHours += `【定休日】${regularHoliday}`;
       combinedHours = combinedHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
       return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
