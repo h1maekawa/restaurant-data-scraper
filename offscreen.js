@@ -6,8 +6,8 @@
 
 const activeTasks = new Map();
 const CHUNK_SIZE = 3;              // ⚡️ 高速化：3件ずつ詳細ページを同時に並行 fetch
-const DELAY_BETWEEN_CHUNKS = 1200; // チャンクごとの安全な待機秒数（ボット判定回避用）
-const DELAY_LIST_FETCH = 1000;     // 一覧ページの取得待機秒数
+const DELAY_BETWEEN_CHUNKS = 1500; // ⚡️ 精度・安全性強化：ボット判定を確実に回避する待機秒数
+const DELAY_LIST_FETCH = 1200;     // 一覧ページの取得待機秒数
 
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
@@ -97,7 +97,7 @@ function hotpepperGetNextUrl(doc) {
   return nextBtn ? nextBtn.href : null;
 }
 
-// 詳細ページのHTMLを直接 fetch して店舗情報を解析
+// 詳細ページのHTMLを直接 fetch して店舗情報を解析（超高精度・鉄壁仕様）
 async function fetchAndParseDetail(link, siteType) {
   try {
     const res = await fetch(link);
@@ -110,32 +110,46 @@ async function fetchAndParseDetail(link, siteType) {
     let address = '';
     let phone = '';
 
-    // ==========================================
-    // 1. 食べログの解析ロジック
-    // ==========================================
+    // ============================================================
+    // 1. 食べログの解析ロジック（最新の曜日詳細・新構造テーブル対応）
+    // ============================================================
     if (siteType === 'tabelog') {
       name = doc.querySelector('.display-name')?.textContent?.trim() || doc.title.split('|')[0].trim();
       address = doc.querySelector('p.rstinfo-table__address')?.textContent?.trim() || '';
-      let realPhone = '';
+
+      // ① 電話番号の最優先狙い撃ち (指定クラス名: rstinfo-table__tel-num)
+      let realPhone = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
       let reservePhone = '';
-      let fallbackPhone = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
+      let fallbackPhone = '';
 
       let tHours = '';
       let tClosed = '';
 
-      // 部分一致(includes)に戻して確実にテーブルからデータを抽出
+      // ② 曜日ごとの営業時間詳細要素 (指定クラス名: rstinfo-table__business-item) を全自動で網羅収集
+      const businessItems = doc.querySelectorAll('.rstinfo-table__business-item');
+      if (businessItems.length > 0) {
+        const itemsArray = [];
+        businessItems.forEach(item => {
+          const txt = item.textContent.trim();
+          if (txt) itemsArray.push(txt);
+        });
+        tHours = itemsArray.join(' '); // 曜日ごとの日にちと時間を結合して格納
+      }
+
+      // テーブルスキャン (ジャンル・定休日の取得 ＆ 営業時間の強力フォールバック)
       doc.querySelectorAll('.rstinfo-table__table th, table th').forEach(th => {
         const t = th.textContent.trim();
         if (t.includes('ジャンル')) genre = th.nextElementSibling?.textContent?.trim() || genre;
         if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('電話番号')) realPhone = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('電話番号') && !realPhone) realPhone = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('予約') || t.includes('お問い合わせ')) reservePhone = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('営業時間')) tHours = th.nextElementSibling?.textContent?.trim() || '';
+        // 上記のクラス名から時間が取れなかった特殊ページの場合のみ、テーブルからフォールバック取得
+        if (t.includes('営業時間') && !tHours) tHours = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('定休日')) tClosed = th.nextElementSibling?.textContent?.trim() || '';
       });
 
-      // 電話番号の強力なフォールバック (aタグのhref属性から直接数字を抽出)
-      if (!realPhone && !reservePhone && !fallbackPhone) {
+      // 電話番号の最終バックアップ
+      if (!realPhone && !reservePhone) {
         const telAnchor = doc.querySelector('a[href^="tel:"]');
         if (telAnchor) {
           fallbackPhone = telAnchor.getAttribute('href').replace('tel:', '').trim();
@@ -146,7 +160,7 @@ async function fetchAndParseDetail(link, siteType) {
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
       phone = phone.replace(/[^\d\-]/g, '');
 
-      // 見出しを明示的に付与してノーマライザーへ結合転送
+      // 見出しを明示的に付与してノーマライザーにデータ転送
       let combinedText = '';
       if (tHours) combinedText += `【営業時間】${tHours} `;
       if (tClosed) combinedText += `【定休日】${tClosed}`;
@@ -155,15 +169,16 @@ async function fetchAndParseDetail(link, siteType) {
       return { name, genre, address, phone, business_hours: combinedText, url: link, source: 'tabelog' };
     }
 
-    // ==========================================
-    // 2. ホットペッパーの解析ロジック（完全復活・補強）
-    // ==========================================
+    // ============================================================
+    // 2. ホットペッパーの解析ロジック（class="telLink" の二段階遷移完全対応版）
+    // ============================================================
     else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim() || doc.querySelector('h1')?.textContent?.trim() || doc.title.split('|')[0].trim();
       let businessHours = '';
       let regularHoliday = '';
 
+      // 「営業時間」「定休日」のテーブル項目から正確にテキストを回収
       shopInner.querySelectorAll('th').forEach(th => {
         const t = th.textContent.trim();
         if (t.includes('店名') && (!name || name === doc.title.split('|')[0].trim())) name = th.nextElementSibling?.textContent?.trim() || name;
@@ -178,17 +193,40 @@ async function fetchAndParseDetail(link, siteType) {
         phone = shopInner.querySelector('.shopDetailInfoTel')?.textContent?.trim() || shopInner.querySelector('.tel')?.textContent?.trim() || shopInner.querySelector('a[href^="tel:"]')?.textContent?.trim() || '';
       }
 
-      // 動的生成される電話番号の対策
-      if (!phone || phone.includes('電話番号を表示する')) {
+      // ③ 電話番号リンク (指定クラス名: telLink) の巡回・完全取得処理
+      const telLinkNode = doc.querySelector('.telLink');
+      if (telLinkNode || !phone || phone.includes('電話番号を表示する')) {
         try {
-          const telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
+          let telUrl = telLinkNode ? telLinkNode.getAttribute('href') : '';
+          if (telUrl && !telUrl.startsWith('http')) {
+            const baseUrl = link.endsWith('/') ? link.slice(0, -1) : link;
+            if (telUrl.startsWith('/')) {
+              const urlObj = new URL(link);
+              telUrl = urlObj.origin + telUrl;
+            } else {
+              telUrl = baseUrl + '/' + telUrl;
+            }
+          }
+          if (!telUrl) {
+            telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
+          }
+
+          // 確実にデータを抜き取るため、遷移フェッチの直前に500msの安全ウェイトを設置
+          await sleep(500);
+
           const telRes = await fetch(telUrl);
           const telHtml = await telRes.text();
           const telDoc = new DOMParser().parseFromString(telHtml, "text/html");
-          const telNode = telDoc.querySelector('.telephoneNumber') || telDoc.querySelector('.tel');
-          if (telNode) phone = telNode.textContent.trim();
-        } catch (e) { }
+          const telNode = telDoc.querySelector('.telephoneNumber') || telDoc.querySelector('.tel') || telDoc.querySelector('.telephone');
+
+          if (telNode && telNode.textContent.trim()) {
+            phone = telNode.textContent.trim();
+          }
+        } catch (e) {
+          console.error('[Hotpepper Tel Link Fetch Error]:', e);
+        }
       }
+
       address = address.replace(/地図を見る/g, '').replace(/\s+/g, ' ').replace(/\n/g, '').trim();
       phone = phone.replace(/[^\d\-]/g, '');
       name = name.replace(/\n/g, '').trim();
