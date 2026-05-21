@@ -5,9 +5,19 @@
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
+let isOffscreenReady = false;
+let offscreenReadyResolver = null;
+
 // Offscreen Document の立ち上げ・維持
 async function setupOffscreenDocument() {
-  if (await chrome.offscreen.hasDocument()) return;
+  if (await chrome.offscreen.hasDocument()) {
+    isOffscreenReady = true;
+    return;
+  }
+  isOffscreenReady = false;
+  const readyPromise = new Promise((resolve) => {
+    offscreenReadyResolver = resolve;
+  });
   try {
     await chrome.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
@@ -15,6 +25,11 @@ async function setupOffscreenDocument() {
       justification: 'バックグラウンドで非アクティブタブの制限を受けずにHTMLパースとスクレーピングを安定して行うため',
     });
     console.log('[BG] Offscreen document created.');
+    // Wait up to 2 seconds for the offscreen to be ready
+    await Promise.race([
+      readyPromise,
+      new Promise(resolve => setTimeout(resolve, 2000))
+    ]);
   } catch (e) {
     console.error('[BG] Failed to create offscreen document:', e);
   }
@@ -87,7 +102,8 @@ async function triggerDownload(results, metadata) {
 
   const now = new Date();
   const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-  const filename = `${area}_${industry}_${media}_${ts}.csv`;
+  let filename = `${area}_${industry}_${media}_${ts}.csv`;
+  filename = filename.replace(/[\/\\:*?"<>|]/g, '_');
 
   try {
     await chrome.downloads.download({
@@ -105,7 +121,15 @@ async function triggerDownload(results, metadata) {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   // 1. Offscreen から Background (ここ) へのシステムリクエスト、またはPopupへの進捗転送
   if (message.target === 'background') {
-    if (message.type === 'DOWNLOAD_CSV') {
+    if (message.type === 'OFFSCREEN_READY') {
+      isOffscreenReady = true;
+      if (offscreenReadyResolver) {
+        offscreenReadyResolver();
+        offscreenReadyResolver = null;
+      }
+      sendResponse({ ok: true });
+      return true;
+    } else if (message.type === 'DOWNLOAD_CSV') {
       triggerDownload(message.results, message.metadata);
       // Popupが閉じている場合を想定してローカルストレージにも結果を保存
       chrome.storage.local.set({

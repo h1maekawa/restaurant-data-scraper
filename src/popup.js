@@ -24,7 +24,7 @@ const previewList   = document.getElementById('previewList');
 // ============================================================
 let allResults   = [];
 let isRunning    = false;
-let maxItems     = Infinity;
+let maxItems     = parseInt(maxSlider.value || 300);
 let currentTabId = null;
 let metadata     = { area: '', industry: '', media: '' };
 
@@ -111,14 +111,29 @@ function esc(s) {
 // CSV 生成・ダウンロード
 // ============================================================
 function toCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'raw_business_hours', 'normalized_business_hours', 'normalized_closed_days', 'business_hours_note', 'url', 'source'];
+  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
+  const keyMapping = {
+    '店名':   'name',
+    'ジャンル': 'genre',
+    '住所':   'address',
+    '電話番号': 'phone',
+    '定休日':  'regular_holiday',
+    '営業時間': 'opening_hours_details',
+    'URL':    'url',
+    '媒体':   'source'
+  };
+
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
       ? '"' + s.replace(/"/g, '""') + '"'
       : s;
   };
-  const rows = data.map(r => headers.map(h => ef(r[h])).join(','));
+
+  const rows = data.map(r =>
+    headers.map(h => ef(r[keyMapping[h]])).join(',')
+  );
+
   return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
 }
 
@@ -135,9 +150,12 @@ function downloadCSV() {
   const now  = new Date();
   const ts   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
   
+  let filename = `${area}_${industry}_${media}_${ts}.csv`;
+  filename = filename.replace(/[\/\\:*?"<>|]/g, '_');
+
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `${area}_${industry}_${media}_${ts}.csv`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
   addLog(`CSV ダウンロード: ${allResults.length}件`, 'good');
@@ -272,6 +290,10 @@ dlBtn.addEventListener('click', downloadCSV);
 // 起動時
 // ============================================================
 (async () => {
+  // スライダー初期設定の同期
+  maxItems = parseInt(maxSlider.value);
+  maxVal.textContent = maxItems + '件';
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) {
     currentTabId = tab.id;

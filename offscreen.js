@@ -25,6 +25,15 @@ function getSiteType(url) {
   return null;
 }
 
+function resolveUrl(href, baseUrl) {
+  if (!href) return '';
+  try {
+    return new URL(href, baseUrl).href;
+  } catch (e) {
+    return href;
+  }
+}
+
 // Background経由で状態を送信
 function sendToBackground(tabId, type, payload = {}) {
   chrome.runtime.sendMessage({
@@ -52,17 +61,19 @@ function extractMetadata(doc, siteType) {
 // ============================================================
 // 食べログ: 店舗リンクの抽出
 // ============================================================
-function tabelogGetLinks(doc) {
+function tabelogGetLinks(doc, baseUrl) {
   const links = [];
   const RST_URL_RE = /tabelog\.com\/[a-z]+\/A\d+\/A\d+\/\d+\//;
   const primary = doc.querySelectorAll('.list-rst__rst-name-target, .js-rst-cassette-wrap .list-rst__name a, a.list-rst__name-main');
   primary.forEach(a => {
-    const href = (a.href || '').split('?')[0];
+    const rawHref = a.getAttribute('href') || '';
+    const href = resolveUrl(rawHref, baseUrl).split('?')[0];
     if (RST_URL_RE.test(href) && !links.includes(href)) links.push(href);
   });
   if (links.length === 0) {
     doc.querySelectorAll('a[href]').forEach(a => {
-      const href = (a.href || '').split('?')[0];
+      const rawHref = a.getAttribute('href') || '';
+      const href = resolveUrl(rawHref, baseUrl).split('?')[0];
       if (RST_URL_RE.test(href) && !links.includes(href)) links.push(href);
     });
   }
@@ -72,32 +83,46 @@ function tabelogGetLinks(doc) {
 // ============================================================
 // 食べログ: 次ページのURL抽出
 // ============================================================
-function tabelogGetNextUrl(doc) {
+function tabelogGetNextUrl(doc, baseUrl) {
   const nextBtn = doc.querySelector('a.c-pagination__arrow--next') || doc.querySelector('.c-pagination__arrow--next a');
-  return nextBtn && !nextBtn.classList.contains('is-disabled') ? nextBtn.href : null;
+  if (nextBtn && !nextBtn.classList.contains('is-disabled')) {
+    const rawHref = nextBtn.getAttribute('href') || '';
+    return resolveUrl(rawHref, baseUrl);
+  }
+  return null;
 }
 
 // ============================================================
 // ホットペッパー: 店舗リンクの抽出
 // ============================================================
-function hotpepperGetLinks(doc) {
+function hotpepperGetLinks(doc, baseUrl) {
   const links = [];
   const anchors = doc.querySelectorAll('.shopDetailTop a, .shopName a, h3.shopName a, a.shopDetailLink, .list-cassette__unit a');
   anchors.forEach(a => {
-    let href = (a.href || '').split('?')[0].split('#')[0];
-    if (/^https:\/\/www\.hotpepper\.jp\/(strJ[A-Z0-9]+|A[A-Z0-9]+)\/?$/.test(href)) {
+    const rawHref = a.getAttribute('href') || '';
+    let href = resolveUrl(rawHref, baseUrl).split('?')[0].split('#')[0];
+    if (/^https?:\/\/(www\.)?hotpepper\.jp\/(strJ[A-Z0-9]+|A[A-Z0-9]+)\/?$/.test(href)) {
       if (!href.endsWith('/')) href += '/';
       if (!links.includes(href)) links.push(href);
     }
   });
+  if (links.length === 0) {
+    doc.querySelectorAll('a[href]').forEach(a => {
+      const rawHref = a.getAttribute('href') || '';
+      let href = resolveUrl(rawHref, baseUrl).split('?')[0].split('#')[0];
+      if (/^https?:\/\/(www\.)?hotpepper\.jp\/(strJ[A-Z0-9]+|A[A-Z0-9]+)\/?$/.test(href)) {
+        if (!href.endsWith('/')) href += '/';
+        if (!links.includes(href)) links.push(href);
+      }
+    });
+  }
   return links;
 }
 
 // ============================================================
 // ホットペッパー: 次ページのURL抽出
-// 【バグ修正】document.querySelectorAll → doc.querySelectorAll
 // ============================================================
-function hotpepperGetNextUrl(doc) {
+function hotpepperGetNextUrl(doc, baseUrl) {
   const pagerContainers = doc.querySelectorAll('.pageLinkLinearBasic, .pagination, .pager, .page-list, .pageList, .page-link');
   let nextBtn = null;
   for (const container of pagerContainers) {
@@ -106,8 +131,6 @@ function hotpepperGetNextUrl(doc) {
     if (nextBtn) break;
   }
   if (!nextBtn) {
-    // 修正前: document.querySelectorAll (グローバルDOMを参照していた致命的バグ)
-    // 修正後: doc.querySelectorAll (パース済みのHTMLドキュメントを正しく参照)
     const anchors = Array.from(doc.querySelectorAll('a.pa_next, a[rel="next"]'));
     nextBtn = anchors.find(a =>
       a.textContent.includes('次') ||
@@ -115,7 +138,11 @@ function hotpepperGetNextUrl(doc) {
       a.classList.contains('pa_next')
     );
   }
-  return nextBtn ? nextBtn.href : null;
+  if (nextBtn) {
+    const rawHref = nextBtn.getAttribute('href') || '';
+    return resolveUrl(rawHref, baseUrl);
+  }
+  return null;
 }
 
 // ============================================================
@@ -226,11 +253,11 @@ async function fetchAndParseDetail(link, siteType) {
         if (t.includes('住所') && !address) {
           address = td?.textContent?.trim() || '';
         }
-        if (t.includes('電話') && !phone) {
+        if ((t.includes('電話') || t.includes('問い合わせ') || t.includes('TEL')) && !phone) {
           phone = td?.textContent?.trim() || '';
         }
         // 「ジャンル」「業種」「料理ジャンル」などを部分一致で取得（ホットペッパー追加修正）
-        if (t.includes('ジャンル') || t.includes('料理') && !genre) {
+        if ((t.includes('ジャンル') || t.includes('料理')) && !genre) {
           genre = td?.textContent?.trim() || '';
         }
         if (t.includes('営業時間')) {
@@ -285,10 +312,21 @@ async function fetchAndParseDetail(link, siteType) {
           // 取得先ページから電話番号要素を探索（複数セレクターでフォールバック）
           const telNode = telDoc.querySelector('.telephoneNumber') ||
                           telDoc.querySelector('.tel') ||
-                          telDoc.querySelector('.telephone');
+                          telDoc.querySelector('.telephone') ||
+                          telDoc.querySelector('a[href^="tel:"]');
 
-          if (telNode && telNode.textContent.trim()) {
-            phone = telNode.textContent.trim();
+          if (telNode) {
+            let rawTel = telNode.textContent.trim();
+            if (telNode.tagName === 'A' && telNode.getAttribute('href')?.startsWith('tel:')) {
+              const telHref = telNode.getAttribute('href').replace('tel:', '').trim();
+              if (/[0-9]/.test(rawTel)) {
+                phone = rawTel;
+              } else {
+                phone = telHref;
+              }
+            } else {
+              phone = rawTel;
+            }
           }
         } catch (e) {
           console.error('[Hotpepper Tel Link Fetch Error]:', e);
@@ -369,7 +407,7 @@ async function runCrawlTask(tabId) {
       }
 
       const getLinks = siteType === 'tabelog' ? tabelogGetLinks : hotpepperGetLinks;
-      let links = getLinks(doc) || [];
+      let links = getLinks(doc, currentListUrl) || [];
 
       const existingUrls = new Set(task.results.map(r => r.url));
       links = links.filter(l => !existingUrls.has(l.split('?')[0]));
@@ -403,14 +441,17 @@ async function runCrawlTask(tabId) {
               //   'opening_hours_details'  ← keyMapping['営業時間']
               // ============================================================
               const finalDetail = {
-                name:                  detail.name,
-                genre:                 detail.genre,
-                address:               detail.address,
-                phone:                 detail.phone || '',
-                regular_holiday:       normalized.normalized_closed_days    || '無休',   // background.js: '定休日'
-                opening_hours_details: normalized.normalized_business_hours || '掲載なし', // background.js: '営業時間'
-                url:                   detail.url,
-                source:                detail.source  // 'tabelog' または 'hotpepper'
+                name:                      detail.name,
+                genre:                     detail.genre,
+                address:                   detail.address,
+                phone:                     detail.phone || '',
+                regular_holiday:           normalized.normalized_closed_days    || '無休',   // background.js: '定休日'
+                opening_hours_details:     normalized.normalized_business_hours || '掲載なし', // background.js: '営業時間'
+                normalized_business_hours: normalized.normalized_business_hours || '掲載なし',
+                normalized_closed_days:    normalized.normalized_closed_days    || '無休',
+                business_hours_note:       normalized.business_hours_note       || '',
+                url:                       detail.url,
+                source:                    detail.source  // 'tabelog' または 'hotpepper'
               };
               task.results.push(finalDetail);
               collected++;
@@ -434,7 +475,7 @@ async function runCrawlTask(tabId) {
 
       // 画面のタブを遷移させず、HTML内の「次へ」のリンクURLを読み取って次の処理へ
       const getNextUrl = siteType === 'tabelog' ? tabelogGetNextUrl : hotpepperGetNextUrl;
-      const nextUrl = getNextUrl(doc);
+      const nextUrl = getNextUrl(doc, currentListUrl);
       if (!nextUrl) {
         sendToBackground(tabId, 'INFO', { message: '最終ページに達しました' });
         break;
@@ -540,3 +581,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 });
+
+// ============================================================
+// 初期化完了シグナルを送信 (Service Worker とのハンドシェイク)
+// ============================================================
+chrome.runtime.sendMessage({ target: 'background', type: 'OFFSCREEN_READY' }).catch(() => {});
