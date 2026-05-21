@@ -125,7 +125,7 @@ async function fetchAndParseDetail(link, siteType) {
       let tHours = '';
       let tClosed = '';
 
-      // ② 曜日ごとの営業時間詳細要素 (指定クラス名: rstinfo-table__business-item) を全自動で網羅収集
+      // ② 画像でご提示いただいた、曜日ごとの営業時間カレンダー（rstinfo-table__business-item）を全自動で連結回収
       const businessItems = doc.querySelectorAll('.rstinfo-table__business-item');
       if (businessItems.length > 0) {
         const itemsArray = [];
@@ -143,7 +143,7 @@ async function fetchAndParseDetail(link, siteType) {
         if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('電話番号') && !realPhone) realPhone = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('予約') || t.includes('お問い合わせ')) reservePhone = th.nextElementSibling?.textContent?.trim() || '';
-        // 上記のクラス名から時間が取れなかった特殊ページの場合のみ、テーブルからフォールバック取得
+        // 上記のクラス名から時間が取れなかった古いページ構造の場合のみ、テーブルからフォールバック取得
         if (t.includes('営業時間') && !tHours) tHours = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('定休日')) tClosed = th.nextElementSibling?.textContent?.trim() || '';
       });
@@ -243,7 +243,7 @@ async function fetchAndParseDetail(link, siteType) {
   }
 }
 
-// メメインクロールタスク
+// クロールメインタスク
 async function runCrawlTask(tabId) {
   const task = activeTasks.get(tabId);
   if (!task) return;
