@@ -5,8 +5,8 @@
  */
 
 const activeTasks = new Map();
-const CHUNK_SIZE = 3;              // ⚡️ 高速化：3件ずつ詳細ページを同時に並行 fetch
-const DELAY_BETWEEN_CHUNKS = 1500; // ⚡️ 精度・安全性強化：ボット判定を確実に回避する待機秒数
+const CHUNK_SIZE = 3;              // 3件ずつ詳細ページを同時に並行 fetch
+const DELAY_BETWEEN_CHUNKS = 1500; // 安全性強化：ボット判定を確実に回避する待機秒数
 const DELAY_LIST_FETCH = 1200;     // 一覧ページの取得待機秒数
 
 function sleep(ms) {
@@ -130,7 +130,7 @@ async function fetchAndParseDetail(link, siteType) {
       if (businessItems.length > 0) {
         const itemsArray = [];
         businessItems.forEach(item => {
-          const txt = item.textContent.trim();
+          const txt = item.textContent.trim().replace(/\s+/g, ' ');
           if (txt) itemsArray.push(txt);
         });
         tHours = itemsArray.join(' '); // 曜日ごとの日にちと時間を結合して格納
@@ -243,7 +243,7 @@ async function fetchAndParseDetail(link, siteType) {
   }
 }
 
-// メインクロールタスク
+// メメインクロールタスク
 async function runCrawlTask(tabId) {
   const task = activeTasks.get(tabId);
   if (!task) return;
@@ -299,7 +299,7 @@ async function runCrawlTask(tabId) {
 
       sendToBackground(tabId, 'INFO', { message: `${pageNum}ページ目: ${links.length}件のリンクを並行取得中...` });
 
-      // ⚡️ 複数件（CHUNK_SIZE）を同時に並行 fetch して超高速化
+      // 複数件（CHUNK_SIZE）を同時に並行 fetch して超高速化
       for (let i = 0; i < links.length; i += CHUNK_SIZE) {
         if (!task.running) break;
         const chunk = links.slice(i, i + CHUNK_SIZE);
