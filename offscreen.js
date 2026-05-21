@@ -26,15 +26,15 @@ function sendToBackground(tabId, type, payload = {}) {
     tabId,
     type,
     payload
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 // 検索条件（エリア・業種）の抽出
 function extractMetadata(doc, siteType) {
   const meta = { area: '', industry: '' };
   if (siteType === 'tabelog') {
-    meta.area = doc.querySelector('.list-condition__item--area')?.textContent?.trim() || 
-                doc.querySelector('.c-link-arrow--back')?.textContent?.trim() || '';
+    meta.area = doc.querySelector('.list-condition__item--area')?.textContent?.trim() ||
+      doc.querySelector('.c-link-arrow--back')?.textContent?.trim() || '';
     meta.industry = doc.querySelector('.list-condition__item--genre')?.textContent?.trim() || '';
   } else if (siteType === 'hotpepper') {
     meta.area = doc.querySelector('.current-area')?.textContent?.trim() || '';
@@ -129,7 +129,7 @@ async function fetchAndParseDetail(link, siteType) {
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
       phone = phone.replace(/[^\d\-]/g, '');
       businessHours = businessHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
-      
+
       return { name, genre, address, phone, business_hours: businessHours, url: link, source: 'tabelog' };
     } else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
@@ -156,7 +156,7 @@ async function fetchAndParseDetail(link, siteType) {
           const telDoc = new DOMParser().parseFromString(telHtml, "text/html");
           const telNode = telDoc.querySelector('.telephoneNumber') || telDoc.querySelector('.tel');
           if (telNode) phone = telNode.textContent.trim();
-        } catch(e) {}
+        } catch (e) { }
       }
       address = address.replace(/地図を見る/g, '').replace(/\s+/g, ' ').replace(/\n/g, '').trim();
       phone = phone.replace(/[^\d\-]/g, '');
@@ -174,7 +174,7 @@ async function fetchAndParseDetail(link, siteType) {
 
       return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
     }
-  } catch(e) {
+  } catch (e) {
     return { name: '', genre: '', address: '', phone: '', business_hours: '', url: link, source: siteType, _error: e.message };
   }
 }
@@ -239,24 +239,25 @@ async function runCrawlTask(tabId) {
       for (let i = 0; i < links.length; i += CHUNK_SIZE) {
         if (!task.running) break;
         const chunk = links.slice(i, i + CHUNK_SIZE);
-        
+
         await Promise.all(chunk.map(async (link) => {
           if (!task.running) return;
           try {
             const detail = await fetchAndParseDetail(link, siteType);
             if (detail && detail.name) {
+              // 営業時間と定休日の正規化スクリプトを実行
               const normalized = normalizeBusinessHours(detail.business_hours || '');
+
+              // 裏側のシステムで扱う英語のデータ構造（前回の構成を維持）
               const finalDetail = {
                 name: detail.name,
                 genre: detail.genre,
                 address: detail.address,
                 phone: detail.phone,
-                raw_business_hours: normalized.raw_business_hours,
-                normalized_business_hours: normalized.normalized_business_hours,
-                normalized_closed_days: normalized.normalized_closed_days,
-                business_hours_note: normalized.business_hours_note,
+                regular_holiday: normalized.normalized_closed_days || '情報なし',
+                opening_hours_details: normalized.normalized_business_hours || '情報なし',
                 url: detail.url,
-                source: detail.source
+                source: detail.source // 自動的に 'tabelog' または 'hotpepper' が入ります
               };
               task.results.push(finalDetail);
               collected++;
@@ -294,7 +295,7 @@ async function runCrawlTask(tabId) {
     sendToBackground(tabId, 'ERROR', { message: err.message });
   } finally {
     task.running = false;
-    
+
     // Popupに完了を通知
     sendToBackground(tabId, 'DONE', {
       collected: task.results.length,
@@ -349,7 +350,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         industry: ''
       }
     });
-    
+
     runCrawlTask(tabId);
     sendResponse({ ok: true });
     return;
@@ -365,8 +366,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'GET_RESULTS') {
     const task = activeTasks.get(tabId);
     if (task) {
-      sendResponse({ 
-        results: task.results || [], 
+      sendResponse({
+        results: task.results || [],
         running: task.running || false,
         metadata: task.metadata || {}
       });

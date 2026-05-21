@@ -31,19 +31,34 @@ function showNotification(title, message) {
   });
 }
 
-// CSVの文字列生成
+// CSVの文字列生成（営業システム・日本語ヘッダー完全統一版）
 function generateCSV(data) {
-  const headers = ['name', 'genre', 'address', 'phone', 'raw_business_hours', 'normalized_business_hours', 'normalized_closed_days', 'business_hours_note', 'url', 'source'];
+  // CSVの一行目（見出し）を日本語に翻訳・統一
+  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
+
+  // 裏側のシステム（英語キー）とのマッピング定義
+  const keyMapping = {
+    '店名': 'name',
+    'ジャンル': 'genre',
+    '住所': 'address',
+    '電話番号': 'phone',
+    '定休日': 'regular_holiday',
+    '営業時間': 'opening_hours_details',
+    'URL': 'url',
+    '媒体': 'source'
+  };
+
   const ef = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
       ? '"' + s.replace(/"/g, '""') + '"'
       : s;
   };
-  const rows = data.map(r => headers.map(h => ef(r[h])).join(','));
+
+  // 日本語ヘッダーの並び順に合わせて、裏側の英語データを抽出して1行にする
+  const rows = data.map(r => headers.map(h => ef(r[keyMapping[h]])).join(','));
   return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
 }
-
 // CSV 自動ダウンロードの実行
 async function triggerDownload(results, metadata) {
   if (!results || results.length === 0) return;
@@ -55,7 +70,7 @@ async function triggerDownload(results, metadata) {
   const area = metadata.area || '不明';
   const industry = metadata.industry || '飲食店';
   const media = metadata.media === 'tabelog' ? '食べログ' : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
-  
+
   const now = new Date();
   const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
   const filename = `${area}_${industry}_${media}_${ts}.csv`;
