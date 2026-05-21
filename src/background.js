@@ -33,22 +33,29 @@ function showNotification(title, message) {
 
 // CSVの文字列生成（営業システム・日本語ヘッダー完全統一版）
 function generateCSV(data) {
+  // ============================================================
   // CSVの一行目（見出し）を日本語に翻訳・統一
+  // 順番：店名,ジャンル,住所,電話番号,定休日,営業時間,URL,媒体
+  // ============================================================
   const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
 
+  // ============================================================
   // 裏側のシステム（offscreen.jsの英語キー）とのマッピング定義
+  // offscreen.js の finalDetail オブジェクトのキー名と完全一致させること
+  // ============================================================
   const keyMapping = {
-    '店名': 'name',
+    '店名':   'name',
     'ジャンル': 'genre',
-    '住所': 'address',
+    '住所':   'address',
     '電話番号': 'phone',
-    '定休日': 'regular_holiday',
-    '営業時間': 'opening_hours_details',
-    'URL': 'url',
-    '媒体': 'source'
+    '定休日':  'regular_holiday',         // offscreen.js: finalDetail.regular_holiday
+    '営業時間': 'opening_hours_details',   // offscreen.js: finalDetail.opening_hours_details
+    'URL':    'url',
+    '媒体':   'source'
   };
 
-  const ef = v => {
+  // CSVエスケープ関数（カンマ・改行・ダブルクォートを含む値を安全にエスケープ）
+  const escapeField = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
       ? '"' + s.replace(/"/g, '""') + '"'
@@ -56,7 +63,11 @@ function generateCSV(data) {
   };
 
   // 日本語ヘッダーの並び順に合わせて、裏側の英語データを抽出して1行にする
-  const rows = data.map(r => headers.map(h => ef(r[keyMapping[h]])).join(','));
+  const rows = data.map(r =>
+    headers.map(h => escapeField(r[keyMapping[h]])).join(',')
+  );
+
+  // BOM付きUTF-8 (Excelでの文字化けを防止)
   return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
 }
 
@@ -68,9 +79,11 @@ async function triggerDownload(results, metadata) {
   const base64 = btoa(unescape(encodeURIComponent(csv)));
   const dataUrl = 'data:text/csv;charset=utf-8;base64,' + base64;
 
-  const area = metadata.area || '不明';
+  const area     = metadata.area     || '不明';
   const industry = metadata.industry || '飲食店';
-  const media = metadata.media === 'tabelog' ? '食べログ' : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
+  const media    = metadata.media === 'tabelog'
+    ? '食べログ'
+    : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
 
   const now = new Date();
   const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
@@ -97,8 +110,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Popupが閉じている場合を想定してローカルストレージにも結果を保存
       chrome.storage.local.set({
         [`last_results_${message.tabId}`]: {
-          results: message.results,
-          metadata: message.metadata,
+          results:   message.results,
+          metadata:  message.metadata,
           timestamp: Date.now()
         }
       });
@@ -108,7 +121,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Popup（画面）が開いていれば進捗を送る
       chrome.runtime.sendMessage({
         tabId: message.tabId,
-        type: message.type,
+        type:  message.type,
         ...message.payload
       }).catch(() => { /* Popupが閉じている場合はスキップ */ });
     }
