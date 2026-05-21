@@ -24,7 +24,7 @@ const previewList   = document.getElementById('previewList');
 // ============================================================
 let allResults   = [];
 let isRunning    = false;
-let maxItems     = parseInt(maxSlider.value || 300);
+let maxItems     = parseInt(maxSlider.value) >= 500 ? Infinity : parseInt(maxSlider.value || 300);
 let currentTabId = null;
 let metadata     = { area: '', industry: '', media: '' };
 
@@ -32,8 +32,14 @@ let metadata     = { area: '', industry: '', media: '' };
 // スライダー
 // ============================================================
 maxSlider.addEventListener('input', () => {
-  maxItems = parseInt(maxSlider.value);
-  maxVal.textContent = maxItems + '件';
+  const val = parseInt(maxSlider.value);
+  if (val >= 500) {
+    maxItems = Infinity;
+    maxVal.textContent = '上限なし';
+  } else {
+    maxItems = val;
+    maxVal.textContent = val + '件';
+  }
 });
 
 // ============================================================
@@ -60,7 +66,9 @@ function setStatus(state, main, sub = '') {
 
 function updateProgress(collected, total) {
   if (total === Infinity) {
-    progressBar.style.width = '100%';
+    // 上限なしの場合は徐々に伸びて最大95%で留まるようにする（進捗感の演出）
+    const pct = Math.min(95, 10 + collected * 2);
+    progressBar.style.width = pct + '%';
     return;
   }
   const pct = total > 0 ? Math.min(100, Math.round(collected / total * 100)) : 0;
@@ -213,7 +221,7 @@ chrome.runtime.onMessage.addListener((msg) => {
       metadata = msg.metadata || metadata;
       addLog(`🎉 完了！ 合計 ${allResults.length} 件取得`, 'good');
       setStatus('done', `取得完了 ${allResults.length} 件`, 'CSVダウンロードできます');
-      updateProgress(allResults.length, maxItems);
+      progressBar.style.width = '100%';
       setButtons(false);
       renderPreview(allResults);
       if (allResults.length > 0) dlBtn.disabled = false;
@@ -254,8 +262,9 @@ startBtn.addEventListener('click', async () => {
   updateProgress(0, maxItems);
 
   const siteName = siteType === 'tabelog' ? '食べログ' : 'ホットペッパー';
-  addLog(`${siteName} クロール開始 (上限なし)`, 'good');
-  setStatus('running', `${siteName} をクロール中...`, `上限なし`);
+  const limitText = maxItems === Infinity ? '上限なし' : `上限 ${maxItems}件`;
+  addLog(`${siteName} クロール開始 (${limitText})`, 'good');
+  setStatus('running', `${siteName} をクロール中...`, limitText);
   setButtons(true);
 
   chrome.runtime.sendMessage({
@@ -291,8 +300,14 @@ dlBtn.addEventListener('click', downloadCSV);
 // ============================================================
 (async () => {
   // スライダー初期設定の同期
-  maxItems = parseInt(maxSlider.value);
-  maxVal.textContent = maxItems + '件';
+  const val = parseInt(maxSlider.value);
+  if (val >= 500) {
+    maxItems = Infinity;
+    maxVal.textContent = '上限なし';
+  } else {
+    maxItems = val;
+    maxVal.textContent = val + '件';
+  }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (tab) {
