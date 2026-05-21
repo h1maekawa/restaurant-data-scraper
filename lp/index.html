@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>飲食店高精度営業リスト獲得システム | レストランデータスクレイパー</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Noto+Sans+JP:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ヘッダー -->
+    <header class="navbar">
+        <div class="container">
+            <div class="logo">🍴 Restaurant List Pipeline</div>
+            <nav>
+                <a href="#features">特徴</a>
+                <a href="#workflow">ワークフロー</a>
+                <a href="#download" class="btn btn-primary-sm">ダウンロード</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- ヒーローセクション -->
+    <section class="hero">
+        <div class="container hero-grid">
+            <div class="hero-text">
+                <span class="badge">次世代の営業リスト作成</span>
+                <h1>3大媒体から自動抽出<br><span class="highlight">重複・チェーンを完全排除</span>する<br>高精度リスト獲得システム</h1>
+                <p>Googleマップ・食べログ・ホットペッパーから日本語統一フォーマットでデータを一括取得。名寄せ・大手チェーン店自動カット・未取得電話番号のホームページ自動追跡まで、営業リスト作成を完全自動化します。</p>
+                <div class="hero-actions">
+                    <a href="#download" class="btn btn-primary">システム一式をダウンロード</a>
+                    <a href="#workflow" class="btn btn-secondary">仕組みを見る</a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="card preview-card">
+                    <div class="card-header">
+                        <span class="dot red"></span>
+                        <span class="dot yellow"></span>
+                        <span class="dot green"></span>
+                        <span class="title">統合出力CSVプレビュー</span>
+                    </div>
+                    <div class="card-body">
+                        <table class="preview-table">
+                            <thead>
+                                <tr>
+                                    <th>店名</th>
+                                    <th>ジャンル</th>
+                                    <th>住所</th>
+                                    <th>電話番号</th>
+                                    <th>媒体</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>浦和菜館</td>
+                                    <td>中華料理店</td>
+                                    <td>埼玉県さいたま市...</td>
+                                    <td>048-711-3412</td>
+                                    <td><span class="tag gmaps">googlemaps</span></td>
+                                </tr>
+                                <tr>
+                                    <td>中国料理 喜仙</td>
+                                    <td>中華料理店</td>
+                                    <td>埼玉県さいたま市...</td>
+                                    <td>048-711-2783</td>
+                                    <td><span class="tag tabelog">tabelog</span></td>
+                                </tr>
+                                <tr>
+                                    <td>好吃 (ハオチー)</td>
+                                    <td>中華料理店</td>
+                                    <td>埼玉県さいたま市...</td>
+                                    <td>048-874-6490</td>
+                                    <td><span class="tag hotpepper">hotpepper</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 特徴セクション -->
+    <section id="features" class="features">
+        <div class="container">
+            <div class="section-title">
+                <h2>無駄なアプローチをゼロにする3つの強み</h2>
+                <p>ただ抽出するだけのツールではありません。営業活動の成約率を最大化するためのロジックが組み込まれています。</p>
+            </div>
+            <div class="grid-3">
+                <div class="feature-card">
+                    <div class="icon">📋</div>
+                    <h3>日本語統一CSVヘッダー</h3>
+                    <p>全媒体で「店名, ジャンル, 住所, 電話番号, 定休日, 営業時間, URL, 媒体」の8項目・同一順序で出力。手作業でのデータ整形は一切不要です。</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">🛑</div>
+                    <h3>重複・チェーン店自動排除</h3>
+                    <p>住所・電話番号の正規化突合による超高精度な名寄せ処理。アプローチしても無駄な大手チェーン店や、複数媒体での重複を完全にカットします。</p>
+                </div>
+                <div class="feature-card">
+                    <div class="icon">🔍</div>
+                    <h3>電話番号ホームページ自動追跡</h3>
+                    <p>媒体上に電話番号が掲載されていない店舗でも、システムが自動で公式ホームページやSNSを巡回。隠れた電話番号を高精度に発掘・補完します。</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ワークフローセクション -->
+    <section id="workflow" class="workflow">
+        <div class="container">
+            <div class="section-title">
+                <h2>全自動営業リスト生成の3ステップ</h2>
+                <p>スクレイピングから名寄せ、情報の補完までシームレスなパイプラインを構築しています。</p>
+            </div>
+            <div class="workflow-steps">
+                <div class="step">
+                    <div class="step-num">01</div>
+                    <div class="step-content">
+                        <h3>3大媒体からターゲットを高速収集</h3>
+                        <p>Chrome拡張機能（Googleマップ・食べログ・ホットペッパー対応）を使い、検索結果から店舗データを裏側で高速並行 fetch。数千件のリードを瞬時に収集します。</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">02</div>
+                    <div class="step-content">
+                        <h3>重複判定・チェーン店クレンジング</h3>
+                        <p>収集したCSVファイルを重複フィルター（Duplicate Filter）に投入。表記揺れ（一丁目と1-1など）を補正した上で名寄せし、無駄なリードを徹底排除します。</p>
+                    </div>
+                </div>
+                <div class="step">
+                    <div class="step-num">03</div>
+                    <div class="step-content">
+                        <h3>未取得電話番号の自動クローリング</h3>
+                        <p>最終フローとして、電話番号が空欄の店舗のURLを自動巡回。会社概要やお問い合わせページから正しい電話番号を高確率で抽出し、リストを完成させます。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- デモセクション -->
+    <section id="demo" class="demo-section">
+        <div class="container">
+            <div class="section-title">
+                <h2>データクレンジング＆自動回収をブラウザで体験</h2>
+                <p>収集したCSVファイルをアップロードするか、下のサンプルCSVをダウンロードして、重複排除や電話番号の自動クローリング回収機能をリアルタイムで体験できます。</p>
+            </div>
+            
+            <div class="demo-card">
+                <!-- ドロップエリア -->
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-zone-content">
+                        <div class="drop-icon">📤</div>
+                        <h3>CSVファイルをドラッグ＆ドロップ、または選択</h3>
+                        <p>※「サンプルCSV」を使用すると、すべての機能を最も分かりやすく体験できます。</p>
+                        <button class="btn btn-secondary-sm" onclick="document.getElementById('csvFileInput').click()">ファイルを選択</button>
+                        <input type="file" id="csvFileInput" accept=".csv" style="display: none;">
+                    </div>
+                </div>
+
+                <!-- 処理中ステータス -->
+                <div class="demo-process" id="demoProcess" style="display: none;">
+                    <div class="process-header">
+                        <span class="process-spinner"></span>
+                        <h4 id="demoProgressText">ファイルを解析中...</h4>
+                    </div>
+                    <div class="demo-progress-wrap">
+                        <div class="demo-progress-bar" id="demoProgressBar"></div>
+                    </div>
+                </div>
+
+                <!-- ダッシュボード（統計情報） -->
+                <div class="demo-dashboard" id="demoDashboard" style="display: none;">
+                    <div class="stat-card">
+                        <span class="stat-label">インポート件数</span>
+                        <span class="stat-value" id="statTotal">0</span>
+                        <span class="stat-desc">元のレコード数</span>
+                    </div>
+                    <div class="stat-card stat-warn">
+                        <span class="stat-label">重複排除</span>
+                        <span class="stat-value" id="statDupes">0</span>
+                        <span class="stat-desc">表記揺れ・名寄せ排除</span>
+                    </div>
+                    <div class="stat-card stat-danger">
+                        <span class="stat-label">チェーン除外</span>
+                        <span class="stat-value" id="statChains">0</span>
+                        <span class="stat-desc">大手チェーン店の自動カット</span>
+                    </div>
+                    <div class="stat-card stat-success">
+                        <span class="stat-label">電話番号補完</span>
+                        <span class="stat-value" id="statPhones">0</span>
+                        <span class="stat-desc">Webから自動クローリング</span>
+                    </div>
+                    <div class="stat-card stat-primary">
+                        <span class="stat-label">最終出力件数</span>
+                        <span class="stat-value" id="statFinal">0</span>
+                        <span class="stat-desc">高精度営業リスト</span>
+                    </div>
+                </div>
+
+                <!-- プレビューリスト -->
+                <div class="demo-results" id="demoResults" style="display: none;">
+                    <div class="results-header">
+                        <h3>クレンジング済みリストプレビュー</h3>
+                        <button class="btn btn-primary-sm" id="demoDownloadBtn">クレンジング済みCSVをダウンロード</button>
+                    </div>
+                    <div class="table-scroll">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>ステータス</th>
+                                    <th>店名</th>
+                                    <th>ジャンル</th>
+                                    <th>住所</th>
+                                    <th>電話番号</th>
+                                    <th>媒体</th>
+                                </tr>
+                            </thead>
+                            <tbody id="demoResultTableBody">
+                                <!-- 動的に追加されます -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ダウンロードセクション -->
+    <section id="download" class="download-section">
+        <div class="container">
+            <div class="download-box">
+                <h2>営業システムパッケージ・各種ファイル</h2>
+                <p>Cloudflare上に配置された、最新版のツール一式および統合データ検証用のサンプルファイルを今すぐダウンロードしてご利用いただけます。</p>
+                <div class="download-grid">
+                    <div class="download-card">
+                        <h4>🎁 拡張機能・システム一式 パッケージ</h4>
+                        <p>飲食店データスクレイパー（食べログ・ホットペッパー対応）およびGoogleマップスクレイパーの拡張機能パッケージ（ZIP形式）です。</p>
+                        <a href="download/extension.zip" class="btn btn-primary-sm download-btn" download>システム一式をDL (.zip)</a>
+                    </div>
+                    <div class="download-card">
+                        <h4>📊 統一フォーマット サンプルCSV</h4>
+                        <p>全システムで共通化された「店名, ジャンル, 住所, 電話番号...」の日本語8ヘッダーで構成された検証用CSVデータです。</p>
+                        <a href="download/sample.csv" class="btn btn-secondary-sm download-btn" download>サンプルCSVをDL (.csv)</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- フッター -->
+    <footer>
+        <div class="container">
+            <p>&copy; 2026 Restaurant List Pipeline Pipeline. All Rights Reserved.</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
