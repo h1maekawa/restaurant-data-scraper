@@ -36,7 +36,7 @@ function generateCSV(data) {
   // CSVの一行目（見出し）を日本語に翻訳・統一
   const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
 
-  // 裏側のシステム（英語キー）とのマッピング定義
+  // 裏側のシステム（offscreen.jsの英語キー）とのマッピング定義
   const keyMapping = {
     '店名': 'name',
     'ジャンル': 'genre',
@@ -59,6 +59,7 @@ function generateCSV(data) {
   const rows = data.map(r => headers.map(h => ef(r[keyMapping[h]])).join(','));
   return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
 }
+
 // CSV 自動ダウンロードの実行
 async function triggerDownload(results, metadata) {
   if (!results || results.length === 0) return;

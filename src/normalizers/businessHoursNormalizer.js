@@ -159,7 +159,7 @@ function extractClosedDays(text) {
     let res = explicitMatch[1].trim();
     // もし定休日の中に時間やL.O.などのノイズが残っていたら後ろを削る
     res = res.split(/[（(]?[0-9０-９]/)[0];
-    return res.replace(/[：:、。,;\.]+$/, '').trim() || '不定休';
+    return res.replace(/[：:、。,;\.]+$/, '').trim() || '無休';
   }
 
   // 2. 「定休日：月曜日」などのパターン
@@ -361,8 +361,8 @@ function normalizeBusinessHours(rawText) {
     if (!rawText) {
       return {
         raw_business_hours: '',
-        normalized_business_hours: '',
-        normalized_closed_days: '',
+        normalized_business_hours: '掲載なし',
+        normalized_closed_days: '無休',
         business_hours_note: ''
       };
     }
@@ -397,17 +397,16 @@ function normalizeBusinessHours(rawText) {
 
     return {
       raw_business_hours: rawText,
-      normalized_business_hours: normalizedHours,
+      normalized_business_hours: normalizedHours || '掲載なし',
       normalized_closed_days: closedDays || '無休',
       business_hours_note: businessHoursNote
     };
   } catch (error) {
     console.error('Error during business hours normalization:', error);
-    // エラー時もCSV出力を継続するため、フォールバックデータを返す (try-catch & null安全)
     return {
       raw_business_hours: rawText || '',
-      normalized_business_hours: rawText || '',
-      normalized_closed_days: '不定休',
+      normalized_business_hours: '掲載なし',
+      normalized_closed_days: '無休',
       business_hours_note: `解析エラー: ${error.message}`
     };
   }
