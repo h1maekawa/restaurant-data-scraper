@@ -35,41 +35,31 @@ async function setupOffscreenDocument() {
   }
 }
 
-// デスクトップ通知の表示
+// ==========================================
+// デスクトップ通知の表示（画像エラー回避のためログ出力に変更）
+// ==========================================
 function showNotification(title, message) {
-  const notificationId = 'tabelog_crawl_' + Date.now();
-  chrome.notifications.create(notificationId, {
-    type: 'basic',
-    iconUrl: 'icons/icon128.png',
-    title: title,
-    message: message
-  });
+  console.log(`[完了通知] ${title}: ${message}`);
 }
 
-// CSVの文字列生成（営業システム・日本語ヘッダー完全統一版）
+// CSVの文字列生成（営業日・開始・終了を追加）
+// CSVの文字列生成（営業日・開始・終了を追加）
 function generateCSV(data) {
-  // ============================================================
-  // CSVの一行目（見出し）を日本語に翻訳・統一
-  // 順番：店名,ジャンル,住所,電話番号,定休日,営業時間,URL,媒体
-  // ============================================================
-  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
+  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
 
-  // ============================================================
-  // 裏側のシステム（offscreen.jsの英語キー）とのマッピング定義
-  // offscreen.js の finalDetail オブジェクトのキー名と完全一致させること
-  // ============================================================
   const keyMapping = {
     '店名':   'name',
     'ジャンル': 'genre',
     '住所':   'address',
     '電話番号': 'phone',
-    '定休日':  'regular_holiday',         // offscreen.js: finalDetail.regular_holiday
-    '営業時間': 'opening_hours_details',   // offscreen.js: finalDetail.opening_hours_details
+    '定休日':  'regular_holiday',
+    '営業日':  'business_days',
+    '営業開始': 'open_time',
+    '営業終了': 'close_time',
     'URL':    'url',
     '媒体':   'source'
   };
 
-  // CSVエスケープ関数（カンマ・改行・ダブルクォートを含む値を安全にエスケープ）
   const escapeField = v => {
     const s = String(v ?? '');
     return (s.includes(',') || s.includes('\n') || s.includes('"'))
@@ -77,12 +67,10 @@ function generateCSV(data) {
       : s;
   };
 
-  // 日本語ヘッダーの並び順に合わせて、裏側の英語データを抽出して1行にする
   const rows = data.map(r =>
     headers.map(h => escapeField(r[keyMapping[h]])).join(',')
   );
 
-  // BOM付きUTF-8 (Excelでの文字化けを防止)
   return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
 }
 
@@ -109,7 +97,7 @@ async function triggerDownload(results, metadata) {
     await chrome.downloads.download({
       url: dataUrl,
       filename: filename,
-      saveAs: false // 自動保存
+      saveAs: false 
     });
     console.log('[BG] ダウンロードに成功しました:', filename);
   } catch (err) {
@@ -119,7 +107,6 @@ async function triggerDownload(results, metadata) {
 
 // メッセージ中継ロジック
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  // 1. Offscreen から Background (ここ) へのシステムリクエスト、またはPopupへの進捗転送
   if (message.target === 'background') {
     if (message.type === 'OFFSCREEN_READY') {
       isOffscreenReady = true;
@@ -131,7 +118,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     } else if (message.type === 'DOWNLOAD_CSV') {
       triggerDownload(message.results, message.metadata);
-      // Popupが閉じている場合を想定してローカルストレージにも結果を保存
       chrome.storage.local.set({
         [`last_results_${message.tabId}`]: {
           results:   message.results,
@@ -142,18 +128,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     } else if (message.type === 'SHOW_NOTIFICATION') {
       showNotification(message.title, message.message);
     } else {
-      // Popup（画面）が開いていれば進捗を送る
       chrome.runtime.sendMessage({
         tabId: message.tabId,
         type:  message.type,
         ...message.payload
-      }).catch(() => { /* Popupが閉じている場合はスキップ */ });
+      }).catch(() => { });
     }
     sendResponse({ ok: true });
     return true;
   }
 
-  // 2. Popup からの指示を Offscreen へ右から左に中継
   if (message.action === 'START_CRAWL') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message });
@@ -168,6 +152,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(res);
       });
     });
-    return true; // 非同期レスポンスを有効化
+    return true;
   }
 });

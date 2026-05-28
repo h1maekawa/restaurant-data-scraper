@@ -3,11 +3,6 @@
  *
  * 営業時間・定休日を正規化し、CSVやプレビュー向けに整形・分離するユーティリティ。
  * Vanilla JS / Service Worker 両方から呼び出せるように設計。
- *
- * 【修正履歴】
- * - junkPhrases ブラックリストを大幅強化（コロナ関連・定型文・SNS誘導など）
- * - cleanText のノイズ除去パターンを追加
- * - self.normalizeBusinessHours エクスポートを維持
  */
 
 // ============================================================
@@ -88,12 +83,8 @@ function cleanText(text) {
   if (!text) return '';
   let s = text;
 
-  // ============================================================
-  // 【強化版】グルメサイト特有の「営業リストに不要な定型文」を完全消去
-  // 食べログ・ホットペッパー・ぐるなびなどで頻出する定型ノイズを網羅
-  // ============================================================
   const junkPhrases = [
-    // ---- 新型コロナ関連（最も頻出するノイズ）----
+    // ---- 新型コロナ関連 ----
     /新型コロナウイルス感染拡大により[^。]*?場合がございます[。]?/g,
     /新型コロナウイルス[^。]*?営業時間[^。]*?[。]?/g,
     /新型コロナウイルス[^。]*?変更[^。]*?[。]?/g,
@@ -141,9 +132,24 @@ function cleanText(text) {
 
   junkPhrases.forEach(regex => { s = s.replace(regex, ''); });
 
+  // L.O.・ラストオーダーの注釈を時刻ごと除去（L.O.内の時刻が誤検出されるのを防ぐ）
+  s = s.replace(/[（(][^（(）)]*(?:L\.O\.|LO|ラストオーダー)[^）)]*[）)]/gi, '');
+  s = s.replace(/(?:料理|ドリンク)?\s*(?:L\.O\.|LO)\s*\d{1,2}[：:]\d{2}/gi, '');
+  
+  // 読点（、）による曜日の並列を「・」に統一（「月、水〜日」→「月・水〜日」）
+  s = s.replace(/([月火水木金土日])\s*[、,]\s*(?=[月火水木金土日])/g, '$1・');
+  
+  // コロンで曜日ブロックと時刻ブロックが区切られている形式を分離
+  s = s.replace(/([月火水木金土日・〜]+)\s*[：:]\s*(\d)/g, '$1 $2');
+
+  // 全角数字を半角数字に変換（パース漏れ防止）
+  s = s.replace(/[０-９]/g, function(m) {
+    return String.fromCharCode(m.charCodeAt(0) - 0xFEE0);
+  });
+
   // ---- 記号の正規化 ----
-  // 波ダッシュ・ハイフン類を「〜」に統一
-  s = s.replace(/[~\-ー－─━~～]/g, '〜');
+  // 波ダッシュ・ハイフン類を「〜」に統一（スペース付きハイフンも吸収）
+  s = s.replace(/\s*[-~\-ー－─━~～]\s*/g, '〜');
   // コロンを全角「：」に統一
   s = s.replace(/：/g, '：');
   s = s.replace(/:/g, '：');
@@ -163,30 +169,31 @@ function cleanText(text) {
 function extractBusinessHourNotes(text) {
   const notes          = [];
   const remainingParts = [];
-
+  
   // 改行、読点、セミコロン等で分割して各パーツを評価
   const parts = text.split(/[\n\r、。;]+/);
-
+  
   const noteKeywords = [
     'L.O', 'LO', 'l.o', 'ラストオーダー', 'ラストオータ', 'ラストオオダ',
     '公式', 'HP', '最新情報', '参照', '確認', '変更', '可能性',
     '混雑', '前後', '了承', '注意', '備考', '完売', '無くなり次第', '売り切れ',
     '前後する', '前後いたします', '※', '＊', '臨時', '特別営業', '料理', 'ドリンク'
   ];
-
+  
   for (let part of parts) {
     part = part.trim();
     if (!part) continue;
-
+    
+    // キーワードマッチ
     const isNote = noteKeywords.some(kw => part.toLowerCase().includes(kw.toLowerCase()));
-
+    
     if (isNote) {
       notes.push(part);
     } else {
       remainingParts.push(part);
     }
   }
-
+  
   return {
     notes:         notes.join('\n'),
     remainingText: remainingParts.join(' ')
@@ -199,7 +206,7 @@ function extractBusinessHourNotes(text) {
  * @returns {string}
  */
 function extractClosedDays(text) {
-  // 1. 【定休日】月 などの明確なパターン（ホットペッパーおよび修正後の食べログ形式）
+  // 1. 【定休日】月 などの明確なパターン
   const explicitMatch = text.match(/【定休日】\s*([^\s【】]+)/);
   if (explicitMatch) {
     let res = explicitMatch[1].trim();
@@ -225,6 +232,7 @@ function extractClosedDays(text) {
     return closedMatch[1].trim();
   }
 
+  // 抽出できなかった場合は空文字を返す
   return '';
 }
 
@@ -395,16 +403,20 @@ function groupBusinessDays(blocks) {
 }
 
 /**
+ * 時間文字列（例:"11:30"）から「時」の整数値だけを取得する
+ */
+function parseTimeToNumber(timeStr) {
+  if (!timeStr) return '';
+  const match = timeStr.match(/(\d{1,2})[：:]\d{2}/);
+  if (!match) return '';
+  return parseInt(match[1], 10);
+}
+
+/**
  * 営業時間・定休日の正規化および分割処理を行うメインエントリーポイント
- * offscreen.js から呼び出され、返り値のキーは background.js の keyMapping と対応している
  *
  * @param {string} rawText 媒体から取得した生の営業時間テキスト
- * @returns {{
- *   raw_business_hours:      string,
- *   normalized_business_hours: string,   <- offscreen.js: opening_hours_details に格納
- *   normalized_closed_days:  string,     <- offscreen.js: regular_holiday に格納
- *   business_hours_note:     string
- * }}
+ * @returns {Object} 営業時間情報のオブジェクト
  */
 function normalizeBusinessHours(rawText) {
   try {
@@ -413,11 +425,14 @@ function normalizeBusinessHours(rawText) {
         raw_business_hours:        '',
         normalized_business_hours: '掲載なし',
         normalized_closed_days:    '無休',
-        business_hours_note:       ''
+        business_hours_note:       '',
+        business_days:             '',
+        open_time:                 '',
+        close_time:                ''
       };
     }
 
-    // 1. テキストの前処理とクレンジング（ジャンクフレーズ除去含む）
+    // 1. テキストの前処理とクレンジング
     let cleaned = cleanText(rawText);
 
     // 2. 補足情報 (Notes) の抽出と分離
@@ -427,11 +442,10 @@ function normalizeBusinessHours(rawText) {
 
     // 3. 定休日の抽出と分離
     let closedDays = extractClosedDays(cleaned);
-    // 定休日が抽出された場合、メインテキストから定休日関連の記述を消去
     mainHoursText = mainHoursText.replace(/【?定休日】?[^\s]*/g, '');
     mainHoursText = mainHoursText.replace(/不定休/g, '');
     mainHoursText = mainHoursText.replace(/年中無休/g, '');
-    mainHoursText = cleanText(mainHoursText); // 再クレンジング
+    mainHoursText = cleanText(mainHoursText);
 
     // 4. 営業時間の抽出と曜日マッピング
     const blocks = extractTimeBlocks(mainHoursText);
@@ -441,15 +455,83 @@ function normalizeBusinessHours(rawText) {
     if (blocks.length > 0) {
       normalizedHours = groupBusinessDays(blocks);
     } else {
-      // 時間帯ブロックが解析できなかった場合のフォールバック（元のテキストをそのまま使用）
       normalizedHours = mainHoursText;
+    }
+
+    // ============================================================
+    // 営業日の文字列化と、開始・終了時間の「確実な数値化」、定休日の補完
+    // ============================================================
+    let businessDaysStr = '';
+    let openTimeNum = '';
+    let closeTimeNum = '';
+    let finalClosedDays = closedDays;
+
+    if (blocks.length > 0) {
+      const firstBlock = blocks[0];
+      
+      // business_days: 全曜日を個別に・区切りで列挙
+      if (firstBlock.parsed.days && firstBlock.parsed.days.length > 0) {
+        const sortedDays = [...firstBlock.parsed.days].sort((a, b) => DAY_INDEX[a] - DAY_INDEX[b]);
+        businessDaysStr = sortedDays.join('・');
+        
+        // normalized_closed_days の補完ロジック
+        const missingDays = DAYS_ORDER.filter(d => !sortedDays.includes(d));
+        const additionalClosed = missingDays.filter(d => !(closedDays || '').includes(d));
+        
+        if (additionalClosed.length > 0) {
+          if (closedDays && (closedDays.includes('不定休') || closedDays.includes('年中無休') || closedDays.includes('無休'))) {
+            finalClosedDays = `${closedDays}（${additionalClosed.join('・')}）`;
+          } else if (closedDays && closedDays !== '無休') {
+            finalClosedDays = `${closedDays}・${additionalClosed.join('・')}`;
+          } else {
+            finalClosedDays = additionalClosed.join('・');
+          }
+        }
+      }
+
+      if (firstBlock.timeRange === '24時間営業' || firstBlock.timeRange === '24時間') {
+        openTimeNum = '0';
+        closeTimeNum = '24';
+      } else {
+        const timeMatch = firstBlock.timeRange.match(/(\d{1,2}[：:]\d{2})\s*[〜\-~]\s*(\d{1,2}[：:]\d{2})/);
+        if (timeMatch) {
+          let startNum = parseTimeToNumber(timeMatch[1]);
+          let endNum = parseTimeToNumber(timeMatch[2]);
+
+          if (startNum !== '' && endNum !== '') {
+            // 深夜営業対応
+            if (endNum <= startNum && endNum <= 5) {
+              endNum += 24;
+            }
+            openTimeNum = String(startNum);
+            closeTimeNum = String(endNum);
+          } else if (startNum !== '') {
+            openTimeNum = String(startNum);
+          } else if (endNum !== '') {
+            closeTimeNum = String(endNum);
+          }
+        }
+      }
+    }
+
+    // normalized_closed_days の値が曜日でも定型文でもない場合は空にする
+    const validClosedPattern = /[月火水木金土日祝不定休無年中]/;
+    if (!validClosedPattern.test(finalClosedDays)) {
+      finalClosedDays = '';
+    }
+
+    if (!finalClosedDays) {
+      finalClosedDays = '無休';
     }
 
     return {
       raw_business_hours:        rawText,
       normalized_business_hours: normalizedHours || '掲載なし',
-      normalized_closed_days:    closedDays      || '無休',
-      business_hours_note:       businessHoursNote
+      normalized_closed_days:    finalClosedDays,
+      business_hours_note:       businessHoursNote,
+      business_days:             businessDaysStr,
+      open_time:                 openTimeNum,
+      close_time:                closeTimeNum
     };
   } catch (error) {
     console.error('Error during business hours normalization:', error);
@@ -457,7 +539,10 @@ function normalizeBusinessHours(rawText) {
       raw_business_hours:        rawText || '',
       normalized_business_hours: '掲載なし',
       normalized_closed_days:    '無休',
-      business_hours_note:       `解析エラー: ${error.message}`
+      business_hours_note:       `解析エラー: ${error.message}`,
+      business_days:             '',
+      open_time:                 '',
+      close_time:                ''
     };
   }
 }

@@ -76,7 +76,7 @@ function updateProgress(collected, total) {
 }
 
 // ============================================================
-// プレビュー描画
+// プレビュー描画（営業日・開始・終了に対応）
 // ============================================================
 function renderPreview(data) {
   previewList.innerHTML = '';
@@ -86,14 +86,14 @@ function renderPreview(data) {
     el.className = 'preview-item';
     
     let hoursPreview = '';
-    if (r.normalized_business_hours) {
-      hoursPreview += `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 ${esc(r.normalized_business_hours.replace(/\n/g, ' | '))}</div>`;
+    
+    // 営業日・開始・終了時間の表示
+    if (r.business_days || r.open_time || r.close_time) {
+      hoursPreview += `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 営業: ${esc(r.business_days)} ${esc(r.open_time)}〜${esc(r.close_time)}</div>`;
     }
-    if (r.normalized_closed_days) {
-      hoursPreview += `<div class="pi-closed" style="font-size: 10px; color: var(--red); margin-top: 1px;">📅 定休日: ${esc(r.normalized_closed_days)}</div>`;
-    }
-    if (r.business_hours_note) {
-      hoursPreview += `<div class="pi-note" style="font-size: 9px; color: var(--yellow); margin-top: 1px; opacity: 0.8;">📝 ${esc(r.business_hours_note.replace(/\n/g, ' | '))}</div>`;
+    // 定休日の表示
+    if (r.regular_holiday) {
+      hoursPreview += `<div class="pi-closed" style="font-size: 10px; color: var(--red); margin-top: 1px;">📅 定休日: ${esc(r.regular_holiday)}</div>`;
     }
 
     el.innerHTML = `
@@ -116,17 +116,19 @@ function esc(s) {
 }
 
 // ============================================================
-// CSV 生成・ダウンロード
+// CSV 生成・ダウンロード（営業日・開始・終了に対応）
 // ============================================================
 function toCSV(data) {
-  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業時間', 'URL', '媒体'];
+  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
   const keyMapping = {
     '店名':   'name',
     'ジャンル': 'genre',
     '住所':   'address',
     '電話番号': 'phone',
     '定休日':  'regular_holiday',
-    '営業時間': 'opening_hours_details',
+    '営業日':  'business_days',
+    '営業開始': 'open_time',
+    '営業終了': 'close_time',
     'URL':    'url',
     '媒体':   'source'
   };
