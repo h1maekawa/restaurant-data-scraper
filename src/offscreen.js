@@ -13,6 +13,53 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
+// ============================================================
+// generateXlsxBase64()
+// SheetJS (XLSX) を使ってxlsxをbase64文字列で返す
+// offscreen.html の <script src="xlsx.full.min.js"> で読み込み済み
+// ============================================================
+function generateXlsxBase64(results, genreLinks) {
+  if (typeof XLSX === 'undefined') {
+    throw new Error('SheetJS (XLSX) が未定義です');
+  }
+
+  const headers = ['店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
+  const keyMapping = {
+    '店名': 'name', 'ジャンル': 'genre', '取得元ジャンル': 'source_genre',
+    '住所': 'address', '電話番号': 'phone', '定休日': 'regular_holiday',
+    '営業日': 'business_days', '営業開始': 'open_time', '営業終了': 'close_time',
+    'URL': 'url', '媒体': 'source'
+  };
+
+  const wb = XLSX.utils.book_new();
+
+  // シート1: 全件
+  const allRows = [headers, ...results.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
+  const wsAll = XLSX.utils.aoa_to_sheet(allRows);
+  XLSX.utils.book_append_sheet(wb, wsAll, '全件');
+
+  // シート2以降: ジャンルごと
+  const genreNames = genreLinks
+    ? genreLinks.map(g => g.name)
+    : [...new Set(results.map(r => r.source_genre).filter(Boolean))];
+
+  genreNames.forEach(genreName => {
+    const genreResults = results.filter(r => r.source_genre === genreName);
+    if (genreResults.length === 0) return;
+    const rows = [headers, ...genreResults.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const sheetName = genreName.replace(/[\/\\:*?\[\]]/g, '').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  // ArrayBuffer → base64
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const uint8 = new Uint8Array(buf);
+  let binary = '';
+  uint8.forEach(b => binary += String.fromCharCode(b));
+  return btoa(binary);
+}
+
 function getSiteType(url) {
   if (/tabelog\.com/.test(url)) return 'tabelog';
   if (/hotpepper\.jp/.test(url)) return 'hotpepper';
@@ -800,15 +847,33 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     });
 
     if (allResults.length > 0) {
-      // 人気ジャンル一括はExcel出力
-      chrome.runtime.sendMessage({
-        target: 'background',
-        type: 'DOWNLOAD_XLSX',
-        results: allResults,
-        metadata: finalMetadata,
-        genreLinks: genreLinks,
-        tabId
-      });
+      // offscreen側でxlsx生成（SheetJSはoffscreen.htmlのscriptタグで読み込み済み）
+      let xlsxBase64 = null;
+      try {
+        xlsxBase64 = generateXlsxBase64(allResults, genreLinks);
+      } catch (e) {
+        console.warn('[offscreen] xlsx生成失敗、CSVにフォールバック:', e);
+      }
+
+      if (xlsxBase64) {
+        chrome.runtime.sendMessage({
+          target: 'background',
+          type: 'DOWNLOAD_XLSX',
+          base64: xlsxBase64,
+          results: allResults,
+          metadata: finalMetadata,
+          tabId
+        });
+      } else {
+        // xlsx生成失敗時はCSVにフォールバック
+        chrome.runtime.sendMessage({
+          target: 'background',
+          type: 'DOWNLOAD_CSV',
+          results: allResults,
+          metadata: finalMetadata,
+          tabId
+        });
+      }
     }
 
     chrome.runtime.sendMessage({
