@@ -13,7 +13,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     const links = [];
 
     if (siteType === 'tabelog') {
-      // 確定セレクタ: #js-leftnavi-genre-scroll 内の .list-balloon__btn-list の a[href]
       const scroll = document.getElementById('js-leftnavi-genre-scroll');
       if (scroll) {
         scroll.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
@@ -25,8 +24,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           links.push({ name, url: href });
         });
       }
-
-      // フォールバック: 上記で取れなかった場合
       if (links.length === 0) {
         document.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
           const href = a.href.split('?')[0].split('#')[0];
@@ -39,31 +36,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
 
     } else if (siteType === 'hotpepper') {
-      // 確定セレクタ: ジャンルURLは /G\d+/ パターンのみ対象
-      const sidebar = document.querySelector('.jscDropDownSide.positionSidebar');
-      const root = sidebar || document;
-
+      const inner = document.querySelector('.jscDropDownSideInner.boxSide');
+      const root = inner || document;
       root.querySelectorAll('.reselectionList li a[href]').forEach(a => {
         const href = a.href.split('?')[0].split('#')[0];
         const name = a.textContent.trim().replace(/\s+/g, ' ');
         if (!href || !name) return;
         if (!/hotpepper\.jp/.test(href)) return;
-        if (!/\/G\d+\/$/.test(href)) return;  // ジャンルURLのみ
+        if (!/\/G\d+\/$/.test(href)) return;
         if (links.some(l => l.url === href)) return;
         links.push({ name, url: href });
       });
-
-      // フォールバック: sidebarが見つからない場合
-      if (links.length === 0) {
-        document.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
-          const href = a.href.split('?')[0].split('#')[0];
-          const name = a.textContent.trim().replace(/\s+/g, ' ');
-          if (!href || !name) return;
-          if (!/hotpepper\.jp/.test(href)) return;
-          if (links.some(l => l.url === href)) return;
-          links.push({ name, url: href });
-        });
-      }
     }
 
     sendResponse({ links });

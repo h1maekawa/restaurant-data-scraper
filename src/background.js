@@ -2,6 +2,12 @@
  * background.js (Service Worker)
  */
 
+try {
+  importScripts('xlsx.full.min.js');
+} catch (e) {
+  console.error('[BG] SheetJS 読み込み失敗:', e);
+}
+
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
 
 let isOffscreenReady = false;
@@ -36,15 +42,59 @@ function showNotification(title, message) {
   console.log(`[完了通知] ${title}: ${message}`);
 }
 
+function buildFilename(metadata, ext) {
+  const area = metadata.area || '不明';
+  const industry = metadata.industry || '飲食店';
+  const media = metadata.media === 'tabelog'
+    ? '食べログ'
+    : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
+  const now = new Date();
+  const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  return `${area}_${industry}_${media}_${ts}.${ext}`.replace(/[\/\\:*?"<>|]/g, '_');
+}
+
+// ============================================================
+// CSV生成（通常クロール用）
+// ============================================================
 function generateCSV(data) {
-  const headers = [
-    '店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号',
-    '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'
-  ];
+  const headers = ['店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
   const keyMapping = {
     '店名': 'name',
     'ジャンル': 'genre',
-    '取得元ジャンル': 'source_genre',  // ← 追加
+    '取得元ジャンル': 'source_genre',
+    '住所': 'address',
+    '電話番号': 'phone',
+    '定休日': 'regular_holiday',
+    '営業日': 'business_days',
+    '営業開始': 'open_time',
+    '営業終了': 'close_time',
+    'URL': 'url',
+    '媒体': 'source'
+  };
+  const escapeField = v => {
+    const s = String(v ?? '');
+    return (s.includes(',') || s.includes('\n') || s.includes('"'))
+      ? '"' + s.replace(/"/g, '""') + '"'
+      : s;
+  };
+  const rows = data.map(r => headers.map(h => escapeField(r[keyMapping[h]])).join(','));
+  return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+}
+
+// ============================================================
+// Excel生成（人気ジャンル一括用）
+// ============================================================
+function generateXlsx(results, genreLinks) {
+  if (typeof XLSX === 'undefined') {
+    console.error('[BG] SheetJS が読み込まれていません');
+    return null;
+  }
+
+  const headers = ['店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
+  const keyMapping = {
+    '店名': 'name',
+    'ジャンル': 'genre',
+    '取得元ジャンル': 'source_genre',
     '住所': 'address',
     '電話番号': 'phone',
     '定休日': 'regular_holiday',
@@ -55,44 +105,90 @@ function generateCSV(data) {
     '媒体': 'source'
   };
 
-  const escapeField = v => {
-    const s = String(v ?? '');
-    return (s.includes(',') || s.includes('\n') || s.includes('"'))
-      ? '"' + s.replace(/"/g, '""') + '"'
-      : s;
-  };
+  const wb = XLSX.utils.book_new();
 
-  const rows = data.map(r =>
-    headers.map(h => escapeField(r[keyMapping[h]])).join(',')
-  );
+  // シート1: 全件
+  const allRows = [headers, ...results.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
+  const wsAll = XLSX.utils.aoa_to_sheet(allRows);
+  XLSX.utils.book_append_sheet(wb, wsAll, '全件');
 
-  return '\uFEFF' + headers.join(',') + '\n' + rows.join('\n');
+  // シート2以降: ジャンルごと
+  const genreNames = genreLinks
+    ? genreLinks.map(g => g.name)
+    : [...new Set(results.map(r => r.source_genre).filter(Boolean))];
+
+  genreNames.forEach(genreName => {
+    const genreResults = results.filter(r => r.source_genre === genreName);
+    if (genreResults.length === 0) return;
+    const rows = [headers, ...genreResults.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const sheetName = genreName.replace(/[\/\\:*?\[\]]/g, '').slice(0, 31);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
 }
 
+// ============================================================
+// CSVダウンロード（通常クロール用）
+// ============================================================
 async function triggerDownload(results, metadata) {
   if (!results || results.length === 0) return;
-
   const csv = generateCSV(results);
   const base64 = btoa(unescape(encodeURIComponent(csv)));
   const dataUrl = 'data:text/csv;charset=utf-8;base64,' + base64;
-
-  const area = metadata.area || '不明';
-  const industry = metadata.industry || '飲食店';
-  const media = metadata.media === 'tabelog'
-    ? '食べログ'
-    : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
-
-  const now = new Date();
-  const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-  let filename = `${area}_${industry}_${media}_${ts}.csv`;
-  filename = filename.replace(/[\/\\:*?"<>|]/g, '_');
-
+  const filename = buildFilename(metadata, 'csv');
   try {
     await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
-    console.log('[BG] ダウンロード成功:', filename);
+    console.log('[BG] CSVダウンロード成功:', filename);
   } catch (err) {
-    console.error('[BG] ダウンロード失敗:', err);
+    console.error('[BG] CSVダウンロード失敗:', err);
   }
+}
+
+// ============================================================
+// Excelダウンロード（人気ジャンル一括用）
+// ============================================================
+async function triggerXlsxDownload(results, metadata, genreLinks) {
+  if (!results || results.length === 0) return;
+  const buf = generateXlsx(results, genreLinks);
+  if (!buf) {
+    console.warn('[BG] xlsx生成失敗 → CSVにフォールバック');
+    await triggerDownload(results, metadata);
+    return;
+  }
+  const uint8 = new Uint8Array(buf);
+  let binary = '';
+  uint8.forEach(b => binary += String.fromCharCode(b));
+  const base64 = btoa(binary);
+  const dataUrl = 'data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,' + base64;
+  const filename = buildFilename(metadata, 'xlsx');
+  try {
+    await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
+    console.log('[BG] Excelダウンロード成功:', filename);
+  } catch (err) {
+    console.error('[BG] Excelダウンロード失敗:', err);
+  }
+}
+
+// ============================================================
+// content.js のライブDOMからジャンルリンクを取得
+// ============================================================
+async function getGenreLinksFromContent(tabId, siteType) {
+  return new Promise((resolve) => {
+    chrome.tabs.sendMessage(
+      tabId,
+      { action: 'GET_GENRE_LINKS', siteType },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[BG] GET_GENRE_LINKS エラー:', chrome.runtime.lastError.message);
+          resolve([]);
+          return;
+        }
+        resolve((response && response.links) ? response.links : []);
+      }
+    );
+  });
 }
 
 // ============================================================
@@ -100,8 +196,8 @@ async function triggerDownload(results, metadata) {
 // ============================================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
-  // offscreen → background への各種通知
   if (message.target === 'background') {
+
     if (message.type === 'OFFSCREEN_READY') {
       isOffscreenReady = true;
       if (offscreenReadyResolver) {
@@ -110,7 +206,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
       sendResponse({ ok: true });
       return true;
-    } else if (message.type === 'DOWNLOAD_CSV') {
+    }
+
+    if (message.type === 'GET_GENRE_LINKS_FROM_CONTENT') {
+      getGenreLinksFromContent(message.tabId, message.siteType).then(links => {
+        chrome.runtime.sendMessage({
+          target: 'offscreen',
+          type: 'GENRE_LINKS_FROM_CONTENT_RESULT',
+          tabId: message.tabId,
+          links
+        }).catch(() => { });
+      });
+      sendResponse({ ok: true });
+      return true;
+    }
+
+    if (message.type === 'DOWNLOAD_XLSX') {
+      triggerXlsxDownload(message.results, message.metadata, message.genreLinks);
+      chrome.storage.local.set({
+        [`last_results_${message.tabId}`]: {
+          results: message.results,
+          metadata: message.metadata,
+          timestamp: Date.now()
+        }
+      });
+      sendResponse({ ok: true });
+      return true;
+    }
+
+    if (message.type === 'DOWNLOAD_CSV') {
       triggerDownload(message.results, message.metadata);
       chrome.storage.local.set({
         [`last_results_${message.tabId}`]: {
@@ -119,27 +243,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           timestamp: Date.now()
         }
       });
-    } else if (message.type === 'SHOW_NOTIFICATION') {
-      showNotification(message.title, message.message);
-    } else {
-      chrome.runtime.sendMessage({
-        tabId: message.tabId,
-        type: message.type,
-        ...message.payload
-      }).catch(() => { });
+      sendResponse({ ok: true });
+      return true;
     }
+
+    if (message.type === 'SHOW_NOTIFICATION') {
+      showNotification(message.title, message.message);
+      sendResponse({ ok: true });
+      return true;
+    }
+
+    // popup への転送
+    chrome.runtime.sendMessage({
+      tabId: message.tabId,
+      type: message.type,
+      ...message.payload
+    }).catch(() => { });
     sendResponse({ ok: true });
     return true;
   }
 
-  // GET_GENRE_LINKS: offscreen → background → content script へ中継
   if (message.action === 'GET_GENRE_LINKS') {
     chrome.tabs.sendMessage(
       message.tabId,
       { action: 'GET_GENRE_LINKS', siteType: message.siteType },
       (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('[BG] GET_GENRE_LINKS 中継エラー:', chrome.runtime.lastError.message);
           sendResponse({ links: [] });
           return;
         }
@@ -149,7 +278,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 既存: START_CRAWL
   if (message.action === 'START_CRAWL') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message });
@@ -158,7 +286,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 追加: START_POPULAR_GENRE_CRAWL
   if (message.action === 'START_POPULAR_GENRE_CRAWL') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message });
@@ -167,7 +294,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // 既存: STOP_CRAWL / GET_RESULTS
   if (message.action === 'STOP_CRAWL' || message.action === 'GET_RESULTS') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message }, (res) => {

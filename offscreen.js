@@ -7,10 +7,6 @@ const CHUNK_SIZE = 3;
 const DELAY_BETWEEN_CHUNKS = 1500;
 const DELAY_LIST_FETCH = 1200;
 
-// ============================================================
-// background経由でcontent.jsのライブDOMからジャンルリンクを
-// 取得するためのPromise管理マップ
-// ============================================================
 const genreLinksResolvers = new Map();
 
 function sleep(ms) {
@@ -343,7 +339,8 @@ async function runCrawlTask(tabId) {
       }
 
       const siteName = siteType === 'tabelog' ? '食べログ' : 'ホットペッパー';
-      sendToBackground(tabId, 'PAGE_START', { page: pageNum, collected, siteName });
+      const genreLabel = task.metadata?.industry ? `「${task.metadata.industry}」` : '';
+      sendToBackground(tabId, 'PAGE_START', { page: pageNum, collected, siteName, genreLabel });
 
       await sleep(DELAY_LIST_FETCH);
       const res = await fetch(currentListUrl);
@@ -373,11 +370,11 @@ async function runCrawlTask(tabId) {
       links = links.slice(0, remaining);
 
       if (links.length === 0) {
-        sendToBackground(tabId, 'INFO', { message: `${pageNum}ページ目: 新規リンクなし → 終了` });
+        sendToBackground(tabId, 'INFO', { message: `${genreLabel} ${pageNum}ページ目: 新規リンクなし → 終了` });
         break;
       }
 
-      sendToBackground(tabId, 'INFO', { message: `${pageNum}ページ目: ${links.length}件のリンクを並行取得中...` });
+      sendToBackground(tabId, 'INFO', { message: `📋 ${genreLabel} ${pageNum}ページ目: ${links.length}件を取得中...` });
 
       for (let i = 0; i < links.length; i += CHUNK_SIZE) {
         if (!task.running) break;
@@ -423,7 +420,7 @@ async function runCrawlTask(tabId) {
       const getNextUrl = siteType === 'tabelog' ? tabelogGetNextUrl : hotpepperGetNextUrl;
       const nextUrl = getNextUrl(doc, currentListUrl);
       if (!nextUrl) {
-        sendToBackground(tabId, 'INFO', { message: '最終ページに達しました' });
+        sendToBackground(tabId, 'INFO', { message: `${genreLabel} 最終ページに達しました` });
         break;
       }
 
@@ -472,14 +469,13 @@ async function runCrawlTask(tabId) {
 }
 
 // ============================================================
-// 既存リスナー（START_CRAWL / STOP_CRAWL / GET_RESULTS）
+// メッセージリスナー
 // ============================================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
 
   const tabId = message.tabId;
 
-  // ── 追加: background からのライブDOM問い合わせ結果受信 ──
   if (message.type === 'GENRE_LINKS_FROM_CONTENT_RESULT') {
     const resolver = genreLinksResolvers.get(message.tabId);
     if (resolver) {
@@ -546,15 +542,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // ============================================================
 // extractGenreLinks()
-// ① content.js のライブDOMを優先（動的レンダリング対応）
-// ② 空の場合のみ fetch静的HTML フォールバック
 // ============================================================
 async function extractGenreLinks(listUrl, siteType, tabId) {
-  // ── ① ライブDOM問い合わせ（tabId がある場合） ──
   if (tabId != null) {
     try {
-      const liveLinks = await new Promise((resolve, reject) => {
-        // タイムアウト: 5秒
+      const liveLinks = await new Promise((resolve) => {
         const timer = setTimeout(() => {
           genreLinksResolvers.delete(tabId);
           resolve([]);
@@ -583,7 +575,7 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
     }
   }
 
-  // ── ② fetchフォールバック（静的HTML） ──
+  // fetchフォールバック
   try {
     const res = await fetch(listUrl);
     const html = await res.text();
@@ -591,7 +583,6 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
     const links = [];
 
     if (siteType === 'tabelog') {
-      // 方法A: #js-leftnavi-genre-scroll > .list-balloon__btn-list（確定セレクタ）
       const scroll = doc.getElementById('js-leftnavi-genre-scroll');
       if (scroll) {
         scroll.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
@@ -602,7 +593,6 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
           }
         });
       }
-      // 方法B: フォールバック
       if (links.length === 0) {
         doc.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
           const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
@@ -613,47 +603,18 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
         });
       }
 
-      // 方法C: leftnavi系クラス
-      if (links.length === 0) {
-        for (const sel of ['[class*="leftnavi"]', '[class*="sidenav"]', '[class*="genre"]', '.c-sidenav', '.list-condition']) {
-          const container = doc.querySelector(sel);
-          if (!container) continue;
-          container.querySelectorAll('a[href]').forEach(a => {
-            const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
-            const name = a.textContent.trim().replace(/\s+/g, ' ');
-            if (href && name && /tabelog\.com/.test(href) && /\/rstLst\//.test(href)
-              && !links.some(l => l.url === href)) {
-              links.push({ name, url: href });
-            }
-          });
-          if (links.length > 0) break;
-        }
-      }
-
     } else if (siteType === 'hotpepper') {
-      const sidebar = doc.querySelector('.jscDropDownSide.positionSidebar');
-      const root = sidebar || doc;
-
+      const inner = doc.querySelector('.jscDropDownSideInner.boxSide');
+      const root = inner || doc;
       root.querySelectorAll('.reselectionList li a[href]').forEach(a => {
         const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
         const name = a.textContent.trim().replace(/\s+/g, ' ');
         if (!href || !name) return;
         if (!/hotpepper\.jp/.test(href)) return;
-        if (!/\/G\d+\/$/.test(href)) return;  // ジャンルURLのみ
+        if (!/\/G\d+\/$/.test(href)) return;
         if (links.some(l => l.url === href)) return;
         links.push({ name, url: href });
       });
-
-      // フォールバック
-      if (links.length === 0) {
-        doc.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
-          const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
-          const name = a.textContent.trim().replace(/\s+/g, ' ');
-          if (href && name && /hotpepper\.jp/.test(href) && !links.some(l => l.url === href)) {
-            links.push({ name, url: href });
-          }
-        });
-      }
     }
 
     return links;
@@ -684,7 +645,6 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     sendToBackground(tabId, 'INFO', { message: 'ジャンルリンクを抽出中...' });
     let genreLinks = [];
     try {
-      // tabId を渡してライブDOM優先で取得
       genreLinks = await extractGenreLinks(listUrl, siteType, tabId);
     } catch (e) {
       sendToBackground(tabId, 'ERROR', { message: `ジャンルリンク取得失敗: ${e.message}` });
@@ -702,7 +662,7 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     }
 
     sendToBackground(tabId, 'INFO', {
-      message: `${genreLinks.length} ジャンルを検出: ${genreLinks.map(g => g.name).join('、')}`
+      message: `${genreLinks.length}ジャンルを検出: ${genreLinks.map(g => g.name).join('、')}`
     });
 
     const allResults = [];
@@ -716,7 +676,7 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
 
       const { name, url } = genreLinks[i];
       sendToBackground(tabId, 'INFO', {
-        message: `[${i + 1}/${genreLinks.length}] ジャンル「${name}」 取得開始`
+        message: `🏷️ [ジャンル ${i + 1}/${genreLinks.length}]「${name}」の取得を開始します`
       });
 
       const tempId = `${tabId}_pg_${i}`;
@@ -742,7 +702,7 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
       activeTasks.delete(tempId);
 
       sendToBackground(tabId, 'INFO', {
-        message: `「${name}」完了 → 累計 ${allResults.length} 件`
+        message: `✅ [ジャンル ${i + 1}/${genreLinks.length}]「${name}」完了 → 累計 ${allResults.length} 件`
       });
 
       if (i < genreLinks.length - 1) {
@@ -767,11 +727,13 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     });
 
     if (allResults.length > 0) {
+      // 人気ジャンル一括はExcel出力
       chrome.runtime.sendMessage({
         target: 'background',
-        type: 'DOWNLOAD_CSV',
+        type: 'DOWNLOAD_XLSX',
         results: allResults,
         metadata: finalMetadata,
+        genreLinks: genreLinks,
         tabId
       });
     }
