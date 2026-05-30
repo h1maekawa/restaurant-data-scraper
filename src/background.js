@@ -5,9 +5,8 @@
 
 // Service Worker をスリープさせない keepAlive
 function keepAlive() {
-  setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => { });
-  }, 20000);
+  chrome.runtime.getPlatformInfo(() => { });
+  setTimeout(keepAlive, 20000);
 }
 keepAlive();
 

@@ -190,7 +190,7 @@ function hotpepperGetNextUrl(doc, baseUrl) {
 
 async function fetchAndParseDetail(link, siteType) {
   try {
-    const res = await fetch(link);
+    const res = await fetch(link, { signal: AbortSignal.timeout(10000) });
     const html = await res.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
@@ -348,7 +348,7 @@ async function fetchAndParseDetail(link, siteType) {
           if (!telUrl) telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
 
           await sleep(500);
-          const telRes = await fetch(telUrl);
+          const telRes = await fetch(telUrl, { signal: AbortSignal.timeout(8000) });
           const telHtml = await telRes.text();
           const telDoc = new DOMParser().parseFromString(telHtml, 'text/html');
           const telNode = telDoc.querySelector('.telephoneNumber')
