@@ -85,9 +85,9 @@ async function triggerDownload(results, metadata) {
 
   try {
     await chrome.downloads.download({ url: dataUrl, filename, saveAs: false });
-    console.log('[BG] ダウンロードに成功しました:', filename);
+    console.log('[BG] ダウンロード成功:', filename);
   } catch (err) {
-    console.error('[BG] ダウンロードに失敗しました:', err);
+    console.error('[BG] ダウンロード失敗:', err);
   }
 }
 
@@ -96,7 +96,7 @@ async function triggerDownload(results, metadata) {
 // ============================================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
-  // ── offscreen → background への各種通知 ──
+  // offscreen → background への各種通知
   if (message.target === 'background') {
     if (message.type === 'OFFSCREEN_READY') {
       isOffscreenReady = true;
@@ -128,7 +128,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── 既存: START_CRAWL（変更なし）──
+  // GET_GENRE_LINKS: offscreen → background → content script へ中継
+  if (message.action === 'GET_GENRE_LINKS') {
+    chrome.tabs.sendMessage(
+      message.tabId,
+      { action: 'GET_GENRE_LINKS', siteType: message.siteType },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          console.warn('[BG] GET_GENRE_LINKS 中継エラー:', chrome.runtime.lastError.message);
+          sendResponse({ links: [] });
+          return;
+        }
+        sendResponse(response || { links: [] });
+      }
+    );
+    return true;
+  }
+
+  // 既存: START_CRAWL
   if (message.action === 'START_CRAWL') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message });
@@ -137,7 +154,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── 追加: START_POPULAR_GENRE_CRAWL を offscreen へ中継 ──
+  // 追加: START_POPULAR_GENRE_CRAWL
   if (message.action === 'START_POPULAR_GENRE_CRAWL') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message });
@@ -146,7 +163,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
-  // ── 既存: STOP_CRAWL / GET_RESULTS（変更なし）──
+  // 既存: STOP_CRAWL / GET_RESULTS
   if (message.action === 'STOP_CRAWL' || message.action === 'GET_RESULTS') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message }, (res) => {

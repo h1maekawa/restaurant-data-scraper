@@ -7,6 +7,12 @@ const CHUNK_SIZE = 3;
 const DELAY_BETWEEN_CHUNKS = 1500;
 const DELAY_LIST_FETCH = 1200;
 
+// ============================================================
+// background経由でcontent.jsのライブDOMからジャンルリンクを
+// 取得するためのPromise管理マップ
+// ============================================================
+const genreLinksResolvers = new Map();
+
 function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
@@ -473,7 +479,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   const tabId = message.tabId;
 
-  // ── 既存: START_CRAWL（変更なし）──
+  // ── 追加: background からのライブDOM問い合わせ結果受信 ──
+  if (message.type === 'GENRE_LINKS_FROM_CONTENT_RESULT') {
+    const resolver = genreLinksResolvers.get(message.tabId);
+    if (resolver) {
+      resolver(message.links || []);
+      genreLinksResolvers.delete(message.tabId);
+    }
+    sendResponse && sendResponse({ ok: true });
+    return true;
+  }
+
   if (message.action === 'START_CRAWL') {
     if (activeTasks.get(tabId)?.running) {
       sendResponse({ ok: false, error: 'このタブで既に実行中です' });
@@ -493,20 +509,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  // ── 既存: STOP_CRAWL（変更なし）──
   if (message.action === 'STOP_CRAWL') {
     const task = activeTasks.get(tabId);
     if (task) task.running = false;
-    // 人気ジャンル一括取得中の場合も停止シグナルを送る
     const popularTask = activeTasks.get(tabId + '_popular');
     if (popularTask) popularTask.running = false;
     sendResponse({ ok: true });
     return;
   }
 
-  // ── 既存: GET_RESULTS（変更なし）──
   if (message.action === 'GET_RESULTS') {
-    // 人気ジャンル一括取得中は _popular タスクを優先して返す
     const popularTask = activeTasks.get(tabId + '_popular');
     const task = popularTask || activeTasks.get(tabId);
     if (task) {
@@ -521,9 +533,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  // ============================================================
-  // 追加: START_POPULAR_GENRE_CRAWL
-  // ============================================================
   if (message.action === 'START_POPULAR_GENRE_CRAWL') {
     if (activeTasks.get(tabId)?.running || activeTasks.get(tabId + '_popular')?.running) {
       sendResponse({ ok: false, error: 'このタブで既に実行中です' });
@@ -536,65 +545,115 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 // ============================================================
-// 追加: extractGenreLinks()
-// サイトごとに人気ジャンルURL一覧を取得する
+// extractGenreLinks()
+// ① content.js のライブDOMを優先（動的レンダリング対応）
+// ② 空の場合のみ fetch静的HTML フォールバック
 // ============================================================
-async function extractGenreLinks(listUrl, siteType) {
-  const res = await fetch(listUrl);
-  const html = await res.text();
-  const doc = new DOMParser().parseFromString(html, 'text/html');
+async function extractGenreLinks(listUrl, siteType, tabId) {
+  // ── ① ライブDOM問い合わせ（tabId がある場合） ──
+  if (tabId != null) {
+    try {
+      const liveLinks = await new Promise((resolve, reject) => {
+        // タイムアウト: 5秒
+        const timer = setTimeout(() => {
+          genreLinksResolvers.delete(tabId);
+          resolve([]);
+        }, 5000);
 
-  const links = [];
+        genreLinksResolvers.set(tabId, (links) => {
+          clearTimeout(timer);
+          resolve(links);
+        });
 
-  if (siteType === 'tabelog') {
-    // 食べログ: #js-leftnavi-genre-anchor 配下の a[href] を取得
-    const anchor = doc.getElementById('js-leftnavi-genre-anchor');
-    if (!anchor) return links;
+        chrome.runtime.sendMessage({
+          target: 'background',
+          type: 'GET_GENRE_LINKS_FROM_CONTENT',
+          tabId,
+          siteType
+        }).catch(() => {
+          clearTimeout(timer);
+          genreLinksResolvers.delete(tabId);
+          resolve([]);
+        });
+      });
 
-    anchor.querySelectorAll('a[href]').forEach(a => {
-      const rawHref = a.getAttribute('href') || '';
-      const href = resolveUrl(rawHref, listUrl).split('?')[0].split('#')[0];
-      const name = a.textContent.trim().replace(/\s+/g, ' ');
-      if (!href || !name) return;
-      if (!/tabelog\.com/.test(href)) return;
-      if (links.some(l => l.url === href)) return;
-      links.push({ name, url: href });
-    });
-
-  } else if (siteType === 'hotpepper') {
-    // ホットペッパー: 候補セレクタを順番に探索して最初に見つかったものを使用
-    const GENRE_CONTAINER_SELECTORS = [
-      '#genreSearch',
-      '.genreLink',
-      '.searchGenreList',
-      '.searchResultGenre',
-      '.genreList'
-    ];
-
-    let container = null;
-    for (const sel of GENRE_CONTAINER_SELECTORS) {
-      container = doc.querySelector(sel);
-      if (container) break;
+      if (liveLinks.length > 0) return liveLinks;
+    } catch (e) {
+      console.warn('[extractGenreLinks] ライブDOM問い合わせ失敗:', e);
     }
-    if (!container) return links;
-
-    container.querySelectorAll('a[href]').forEach(a => {
-      const rawHref = a.getAttribute('href') || '';
-      const href = resolveUrl(rawHref, listUrl).split('?')[0].split('#')[0];
-      const name = a.textContent.trim().replace(/\s+/g, ' ');
-      if (!href || !name) return;
-      if (!/hotpepper\.jp/.test(href)) return;
-      if (links.some(l => l.url === href)) return;
-      links.push({ name, url: href });
-    });
   }
 
-  return links;
+  // ── ② fetchフォールバック（静的HTML） ──
+  try {
+    const res = await fetch(listUrl);
+    const html = await res.text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const links = [];
+
+    if (siteType === 'tabelog') {
+      // 方法A: #js-leftnavi-genre-anchor
+      const anchor = doc.getElementById('js-leftnavi-genre-anchor');
+      if (anchor) {
+        anchor.querySelectorAll('a[href]').forEach(a => {
+          const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
+          const name = a.textContent.trim().replace(/\s+/g, ' ');
+          if (href && name && /tabelog\.com/.test(href) && !links.some(l => l.url === href)) {
+            links.push({ name, url: href });
+          }
+        });
+      }
+      // 方法B: /rstLst/XX/ パターン
+      if (links.length === 0) {
+        doc.querySelectorAll('a[href]').forEach(a => {
+          const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
+          const name = a.textContent.trim().replace(/\s+/g, ' ');
+          if (href && name && /tabelog\.com/.test(href) && /\/rstLst\/[A-Z]{2}\//.test(href)
+            && !links.some(l => l.url === href)) {
+            links.push({ name, url: href });
+          }
+        });
+      }
+      // 方法C: leftnavi系クラス
+      if (links.length === 0) {
+        for (const sel of ['[class*="leftnavi"]', '[class*="sidenav"]', '[class*="genre"]', '.c-sidenav', '.list-condition']) {
+          const container = doc.querySelector(sel);
+          if (!container) continue;
+          container.querySelectorAll('a[href]').forEach(a => {
+            const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
+            const name = a.textContent.trim().replace(/\s+/g, ' ');
+            if (href && name && /tabelog\.com/.test(href) && /\/rstLst\//.test(href)
+              && !links.some(l => l.url === href)) {
+              links.push({ name, url: href });
+            }
+          });
+          if (links.length > 0) break;
+        }
+      }
+
+    } else if (siteType === 'hotpepper') {
+      for (const sel of ['#genreSearch', '.genreLink', '.searchGenreList', '.searchResultGenre', '.genreList']) {
+        const container = doc.querySelector(sel);
+        if (!container) continue;
+        container.querySelectorAll('a[href]').forEach(a => {
+          const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
+          const name = a.textContent.trim().replace(/\s+/g, ' ');
+          if (href && name && /hotpepper\.jp/.test(href) && !links.some(l => l.url === href)) {
+            links.push({ name, url: href });
+          }
+        });
+        if (links.length > 0) break;
+      }
+    }
+
+    return links;
+  } catch (e) {
+    console.error('[extractGenreLinks] fetchフォールバック失敗:', e);
+    return [];
+  }
 }
 
 // ============================================================
-// 追加: runPopularGenreCrawl()
-// ジャンルURLを順番に巡回し、結果を統合してCSV出力する
+// runPopularGenreCrawl()
 // ============================================================
 async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
   const siteType = getSiteType(listUrl);
@@ -603,7 +662,6 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     return;
   }
 
-  // 親タスク: 停止シグナル受信用
   const parentTaskKey = tabId + '_popular';
   activeTasks.set(parentTaskKey, {
     running: true,
@@ -612,11 +670,11 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
   });
 
   try {
-    // ジャンルリンクを抽出
     sendToBackground(tabId, 'INFO', { message: 'ジャンルリンクを抽出中...' });
     let genreLinks = [];
     try {
-      genreLinks = await extractGenreLinks(listUrl, siteType);
+      // tabId を渡してライブDOM優先で取得
+      genreLinks = await extractGenreLinks(listUrl, siteType, tabId);
     } catch (e) {
       sendToBackground(tabId, 'ERROR', { message: `ジャンルリンク取得失敗: ${e.message}` });
       activeTasks.delete(parentTaskKey);
@@ -625,8 +683,8 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
 
     if (genreLinks.length === 0) {
       const reason = siteType === 'tabelog'
-        ? '#js-leftnavi-genre-anchor が見つかりません。食べログの検索結果ページを開いてください。'
-        : 'ジャンルコンテナが見つかりません。ホットペッパーのエリアページを開いてください。';
+        ? 'ジャンルリンクが見つかりません。食べログの検索結果ページを開いた状態で実行してください。'
+        : 'ジャンルリンクが見つかりません。ホットペッパーのエリアページを開いた状態で実行してください。';
       sendToBackground(tabId, 'ERROR', { message: reason });
       activeTasks.delete(parentTaskKey);
       return;
@@ -639,7 +697,6 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     const allResults = [];
 
     for (let i = 0; i < genreLinks.length; i++) {
-      // 停止チェック
       const parentTask = activeTasks.get(parentTaskKey);
       if (!parentTask || !parentTask.running) {
         sendToBackground(tabId, 'INFO', { message: '停止リクエストにより中断しました' });
@@ -651,11 +708,10 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
         message: `[${i + 1}/${genreLinks.length}] ジャンル「${name}」 取得開始`
       });
 
-      // 一時タスクIDで runCrawlTask を呼び出す（既存関数をそのまま使用）
       const tempId = `${tabId}_pg_${i}`;
       activeTasks.set(tempId, {
         running: true,
-        tabId,                 // sendToBackground が本来の tabId へ通知するよう維持
+        tabId,
         listUrl: url,
         results: [],
         maxItems: maxItemsPerGenre,
@@ -674,36 +730,27 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
         message: `「${name}」完了 → 累計 ${allResults.length} 件`
       });
 
-      // 次のジャンルへ進む前のインターバル（最終ジャンルは不要）
       if (i < genreLinks.length - 1) {
         const pt = activeTasks.get(parentTaskKey);
         if (pt && pt.running) await sleep(2000);
       }
     }
 
-    // 結果を親タスクへ格納（GET_RESULTS で参照される）
     const pt = activeTasks.get(parentTaskKey);
     if (pt) {
       pt.results = allResults;
       pt.running = false;
     }
 
-    // メタデータ生成
     const metaArea = allResults[0]?.address?.replace(/\s+/g, '').slice(0, 6) || '';
-    const finalMetadata = {
-      media: siteType,
-      area: metaArea,
-      industry: '人気ジャンル一括'
-    };
+    const finalMetadata = { media: siteType, area: metaArea, industry: '人気ジャンル一括' };
 
-    // DONE 通知
     sendToBackground(tabId, 'DONE', {
       collected: allResults.length,
       results: allResults,
       metadata: finalMetadata
     });
 
-    // CSV 出力（既存の triggerDownload を background 経由で呼び出す）
     if (allResults.length > 0) {
       chrome.runtime.sendMessage({
         target: 'background',
