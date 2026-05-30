@@ -631,17 +631,27 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
       }
 
     } else if (siteType === 'hotpepper') {
-      for (const sel of ['#genreSearch', '.genreLink', '.searchGenreList', '.searchResultGenre', '.genreList']) {
-        const container = doc.querySelector(sel);
-        if (!container) continue;
-        container.querySelectorAll('a[href]').forEach(a => {
+      // 確定セレクタ: .jscDropDownSide.positionSidebar 内の .reselectionList.cf の li > a
+      const sidebar = doc.querySelector('.jscDropDownSide.positionSidebar');
+      if (sidebar) {
+        sidebar.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
           const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
           const name = a.textContent.trim().replace(/\s+/g, ' ');
           if (href && name && /hotpepper\.jp/.test(href) && !links.some(l => l.url === href)) {
             links.push({ name, url: href });
           }
         });
-        if (links.length > 0) break;
+      }
+
+      // フォールバック
+      if (links.length === 0) {
+        doc.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
+          const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
+          const name = a.textContent.trim().replace(/\s+/g, ' ');
+          if (href && name && /hotpepper\.jp/.test(href) && !links.some(l => l.url === href)) {
+            links.push({ name, url: href });
+          }
+        });
       }
     }
 

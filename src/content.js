@@ -39,20 +39,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
 
     } else if (siteType === 'hotpepper') {
-      const SELECTORS = [
-        '#genreSearch',
-        '.genreLink',
-        '.searchGenreList',
-        '.searchResultGenre',
-        '.genreList'
-      ];
-      let container = null;
-      for (const sel of SELECTORS) {
-        container = document.querySelector(sel);
-        if (container) break;
+      // 確定セレクタ: .jscDropDownSide.positionSidebar 内の .reselectionList.cf の li > a
+      const sidebar = document.querySelector('.jscDropDownSide.positionSidebar');
+      if (sidebar) {
+        sidebar.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
+          const href = a.href.split('?')[0].split('#')[0];
+          const name = a.textContent.trim().replace(/\s+/g, ' ');
+          if (!href || !name) return;
+          if (!/hotpepper\.jp/.test(href)) return;
+          if (links.some(l => l.url === href)) return;
+          links.push({ name, url: href });
+        });
       }
-      if (container) {
-        container.querySelectorAll('a[href]').forEach(a => {
+
+      // フォールバック: sidebarが見つからない場合
+      if (links.length === 0) {
+        document.querySelectorAll('.reselectionList.cf li a[href]').forEach(a => {
           const href = a.href.split('?')[0].split('#')[0];
           const name = a.textContent.trim().replace(/\s+/g, ' ');
           if (!href || !name) return;
