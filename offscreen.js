@@ -591,10 +591,10 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
     const links = [];
 
     if (siteType === 'tabelog') {
-      // 方法A: #js-leftnavi-genre-anchor
-      const anchor = doc.getElementById('js-leftnavi-genre-anchor');
-      if (anchor) {
-        anchor.querySelectorAll('a[href]').forEach(a => {
+      // 方法A: #js-leftnavi-genre-scroll > .list-balloon__btn-list（確定セレクタ）
+      const scroll = doc.getElementById('js-leftnavi-genre-scroll');
+      if (scroll) {
+        scroll.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
           const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
           const name = a.textContent.trim().replace(/\s+/g, ' ');
           if (href && name && /tabelog\.com/.test(href) && !links.some(l => l.url === href)) {
@@ -602,17 +602,17 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
           }
         });
       }
-      // 方法B: /rstLst/XX/ パターン
+      // 方法B: フォールバック
       if (links.length === 0) {
-        doc.querySelectorAll('a[href]').forEach(a => {
+        doc.querySelectorAll('.list-balloon__btn-list a[href]').forEach(a => {
           const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
           const name = a.textContent.trim().replace(/\s+/g, ' ');
-          if (href && name && /tabelog\.com/.test(href) && /\/rstLst\/[A-Z]{2}\//.test(href)
-            && !links.some(l => l.url === href)) {
+          if (href && name && /tabelog\.com/.test(href) && !links.some(l => l.url === href)) {
             links.push({ name, url: href });
           }
         });
       }
+
       // 方法C: leftnavi系クラス
       if (links.length === 0) {
         for (const sel of ['[class*="leftnavi"]', '[class*="sidenav"]', '[class*="genre"]', '.c-sidenav', '.list-condition']) {
@@ -722,7 +722,11 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
 
       const finishedTask = activeTasks.get(tempId);
       if (finishedTask?.results?.length) {
-        allResults.push(...finishedTask.results);
+        const taggedResults = finishedTask.results.map(r => ({
+          ...r,
+          source_genre: name
+        }));
+        allResults.push(...taggedResults);
       }
       activeTasks.delete(tempId);
 

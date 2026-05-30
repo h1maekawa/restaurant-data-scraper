@@ -37,10 +37,14 @@ function showNotification(title, message) {
 }
 
 function generateCSV(data) {
-  const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
+  const headers = [
+    '店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号',
+    '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'
+  ];
   const keyMapping = {
     '店名': 'name',
     'ジャンル': 'genre',
+    '取得元ジャンル': 'source_genre',  // ← 追加
     '住所': 'address',
     '電話番号': 'phone',
     '定休日': 'regular_holiday',
