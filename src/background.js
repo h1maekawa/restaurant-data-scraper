@@ -2,10 +2,17 @@
  * background.js (Service Worker)
  */
 
+// importScripts はルートからの相対パスで指定する
+// background.js が src/ にある場合でも、拡張機能ルート基準になる
 try {
-  importScripts('xlsx.full.min.js');
+  importScripts('src/xlsx.full.min.js');
 } catch (e) {
-  console.error('[BG] SheetJS 読み込み失敗:', e);
+  try {
+    // フォールバック: background.js と同じ階層に置いた場合
+    importScripts('xlsx.full.min.js');
+  } catch (e2) {
+    console.warn('[BG] SheetJS 読み込み失敗（xlsx出力はCSVにフォールバックします）:', e2.message);
+  }
 }
 
 const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
@@ -86,7 +93,7 @@ function generateCSV(data) {
 // ============================================================
 function generateXlsx(results, genreLinks) {
   if (typeof XLSX === 'undefined') {
-    console.error('[BG] SheetJS が読み込まれていません');
+    console.warn('[BG] SheetJS 未読み込み → CSVにフォールバック');
     return null;
   }
 
@@ -173,6 +180,7 @@ async function triggerXlsxDownload(results, metadata, genreLinks) {
 
 // ============================================================
 // content.js のライブDOMからジャンルリンクを取得
+// content.js が未注入でも警告のみでクラッシュしない
 // ============================================================
 async function getGenreLinksFromContent(tabId, siteType) {
   return new Promise((resolve) => {
@@ -181,7 +189,7 @@ async function getGenreLinksFromContent(tabId, siteType) {
       { action: 'GET_GENRE_LINKS', siteType },
       (response) => {
         if (chrome.runtime.lastError) {
-          console.warn('[BG] GET_GENRE_LINKS エラー:', chrome.runtime.lastError.message);
+          // content.js 未注入は想定内 → offscreen の fetchフォールバックに任せる
           resolve([]);
           return;
         }
