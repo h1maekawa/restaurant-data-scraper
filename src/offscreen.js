@@ -3,9 +3,9 @@
  */
 
 const activeTasks = new Map();
-const CHUNK_SIZE = 3;
-const DELAY_BETWEEN_CHUNKS = 1500;
-const DELAY_LIST_FETCH = 1200;
+const CHUNK_SIZE = 5;
+const DELAY_BETWEEN_CHUNKS = 800;
+const DELAY_LIST_FETCH = 600;
 
 const genreLinksResolvers = new Map();
 

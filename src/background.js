@@ -3,6 +3,14 @@
  * ※ SheetJS は offscreen.html で読み込むため importScripts 不要
  */
 
+// Service Worker をスリープさせない keepAlive
+function keepAlive() {
+  setInterval(() => {
+    chrome.runtime.getPlatformInfo(() => { });
+  }, 20000);
+}
+keepAlive();
+
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html';
 let isOffscreenReady = false;
 let offscreenReadyResolver = null;
