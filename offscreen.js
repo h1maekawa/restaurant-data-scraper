@@ -1,6 +1,5 @@
 /**
  * offscreen.js
- * 画面に干渉されず、完全に裏で高速並行 fetch と HTMLパースを行うコアスクリプト。
  */
 
 const activeTasks = new Map();
@@ -39,8 +38,8 @@ function sendToBackground(tabId, type, payload = {}) {
 function extractMetadata(doc, siteType) {
   const meta = { area: '', industry: '' };
   if (siteType === 'tabelog') {
-    meta.area = doc.querySelector('.list-condition__item--area')?.textContent?.trim() ||
-      doc.querySelector('.c-link-arrow--back')?.textContent?.trim() || '';
+    meta.area = doc.querySelector('.list-condition__item--area')?.textContent?.trim()
+      || doc.querySelector('.c-link-arrow--back')?.textContent?.trim() || '';
     meta.industry = doc.querySelector('.list-condition__item--genre')?.textContent?.trim() || '';
   } else if (siteType === 'hotpepper') {
     meta.area = doc.querySelector('.current-area')?.textContent?.trim() || '';
@@ -69,7 +68,8 @@ function tabelogGetLinks(doc, baseUrl) {
 }
 
 function tabelogGetNextUrl(doc, baseUrl) {
-  const nextBtn = doc.querySelector('a.c-pagination__arrow--next') || doc.querySelector('.c-pagination__arrow--next a');
+  const nextBtn = doc.querySelector('a.c-pagination__arrow--next')
+    || doc.querySelector('.c-pagination__arrow--next a');
   if (nextBtn && !nextBtn.classList.contains('is-disabled')) {
     const rawHref = nextBtn.getAttribute('href') || '';
     return resolveUrl(rawHref, baseUrl);
@@ -131,23 +131,16 @@ async function fetchAndParseDetail(link, siteType) {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
 
-    let name = '';
-    let genre = '';
-    let address = '';
-    let phone = '';
+    let name = '', genre = '', address = '', phone = '';
 
-    // ========================================================
-    // 食べログ
-    // ========================================================
     if (siteType === 'tabelog') {
-      name    = doc.querySelector('.display-name')?.textContent?.trim() || doc.title.split('|')[0].trim();
+      name = doc.querySelector('.display-name')?.textContent?.trim() || doc.title.split('|')[0].trim();
       address = doc.querySelector('p.rstinfo-table__address')?.textContent?.trim() || '';
 
-      let realPhone     = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
-      let reservePhone  = '';
+      let realPhone = doc.querySelector('.rstinfo-table__tel-num')?.textContent?.trim() || '';
+      let reservePhone = '';
       let fallbackPhone = '';
-
-      let tHours  = '';
+      let tHours = '';
       let tClosed = '';
 
       const businessItems = doc.querySelectorAll('.rstinfo-table__business-item');
@@ -162,167 +155,109 @@ async function fetchAndParseDetail(link, siteType) {
 
       doc.querySelectorAll('.rstinfo-table__table th, table th').forEach(th => {
         const t = th.textContent.trim();
-        if (t.includes('ジャンル'))               genre        = th.nextElementSibling?.textContent?.trim() || genre;
-        if (t.includes('住所') && !address)        address      = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('電話番号') && !realPhone)   realPhone    = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('ジャンル')) genre = th.nextElementSibling?.textContent?.trim() || genre;
+        if (t.includes('住所') && !address) address = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('電話番号') && !realPhone) realPhone = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('予約') || t.includes('お問い合わせ')) reservePhone = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('営業時間') && !tHours)      tHours       = th.nextElementSibling?.textContent?.trim() || '';
-        if (t.includes('定休日'))                  tClosed      = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('営業時間') && !tHours) tHours = th.nextElementSibling?.textContent?.trim() || '';
+        if (t.includes('定休日')) tClosed = th.nextElementSibling?.textContent?.trim() || '';
       });
 
       if (!realPhone && !reservePhone) {
         const telAnchor = doc.querySelector('a[href^="tel:"]');
-        if (telAnchor) {
-          fallbackPhone = telAnchor.getAttribute('href').replace('tel:', '').trim();
-        }
+        if (telAnchor) fallbackPhone = telAnchor.getAttribute('href').replace('tel:', '').trim();
       }
 
-      phone   = realPhone || reservePhone || fallbackPhone;
+      phone = realPhone || reservePhone || fallbackPhone;
       address = address.replace(/大きな地図を見る/g, '').replace(/周辺のお店を探す/g, '').replace(/\s+/g, ' ').trim();
-      phone   = phone.replace(/[^\d\-]/g, '');
+      phone = phone.replace(/[^\d\-]/g, '');
 
       let combinedText = '';
-      if (tHours)  combinedText += `【営業時間】${tHours} `;
+      if (tHours) combinedText += `【営業時間】${tHours} `;
       if (tClosed) combinedText += `【定休日】${tClosed}`;
       combinedText = combinedText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-      return {
-        name, genre, address, phone, business_hours: combinedText, url: link, source: 'tabelog'
-      };
+      return { name, genre, address, phone, business_hours: combinedText, url: link, source: 'tabelog' };
     }
 
-    // ========================================================
-    // ホットペッパー
-    // ========================================================
     else if (siteType === 'hotpepper') {
       const shopInner = doc.querySelector('.shopInner.meiryoFont') || doc.querySelector('.shopDetailInnerTop') || doc;
       name = shopInner.querySelector('.shopName')?.textContent?.trim()
         || doc.querySelector('h1')?.textContent?.trim()
         || doc.title.split('|')[0].trim();
 
-      let businessHours  = '';
+      let businessHours = '';
       let regularHoliday = '';
 
-      // ── パターン0: ネット予約対応店舗（td+td 2列形式）──
-      // th が存在しない店舗は全セルを2列ペアとして読む
       doc.querySelectorAll('table tr').forEach(tr => {
         const cells = tr.querySelectorAll('td');
         if (cells.length < 2) return;
-        const label        = cells[0].textContent.trim();
+        const label = cells[0].textContent.trim();
         const valFirstLine = cells[1].textContent.trim().split('\n')[0].replace(/\s+/g, ' ').trim();
-        const valFull      = cells[1].textContent.replace(/\s+/g, ' ').trim();
+        const valFull = cells[1].textContent.replace(/\s+/g, ' ').trim();
 
-        if (label === '店名' && (!name || name === doc.title.split('|')[0].trim())) {
-          name = valFirstLine || name;
-        }
-        if (label === '住所' && !address) {
-          address = valFull;
-        }
-        if ((label === '電話' || label === 'TEL') && !phone) {
-          phone = valFirstLine;
-        }
-        if ((label === 'ジャンル' || label === '料理') && !genre) {
-          genre = valFull;
-        }
+        if (label === '店名' && (!name || name === doc.title.split('|')[0].trim())) name = valFirstLine || name;
+        if (label === '住所' && !address) address = valFull;
+        if ((label === '電話' || label === 'TEL') && !phone) phone = valFirstLine;
+        if ((label === 'ジャンル' || label === '料理') && !genre) genre = valFull;
         if (label === '営業時間' && !businessHours) {
           businessHours = Array.from(cells[1].childNodes)
-            .map(n => n.textContent.trim())
-            .filter(Boolean)
-            .join(' ');
+            .map(n => n.textContent.trim()).filter(Boolean).join(' ');
         }
-        if (label === '定休日' && !regularHoliday) {
-          regularHoliday = valFirstLine;
-        }
+        if (label === '定休日' && !regularHoliday) regularHoliday = valFirstLine;
       });
 
-      // ── パターン1: th/td テーブル構造（従来型）──
       shopInner.querySelectorAll('th').forEach(th => {
-        // th 直下のテキストノードのみ取得（子要素のテキスト混入を防ぐ）
         const t = Array.from(th.childNodes)
           .filter(n => n.nodeType === Node.TEXT_NODE)
-          .map(n => n.textContent.trim())
-          .join('') || th.firstElementChild?.textContent?.trim() || th.textContent?.split('\n')[0].trim();
+          .map(n => n.textContent.trim()).join('')
+          || th.firstElementChild?.textContent?.trim()
+          || th.textContent?.split('\n')[0].trim();
 
         const td = th.nextElementSibling;
         if (!td) return;
-
         const tdText = td.textContent.trim().split('\n')[0].trim();
         const tdFull = td.textContent.replace(/\s+/g, ' ').trim();
 
-        if (t.includes('店名') && (!name || name === doc.title.split('|')[0].trim())) {
-          name = tdText || name;
-        }
-        if (t.includes('住所') && !address) {
-          address = tdFull || '';
-        }
-        if ((t.includes('電話') || t.includes('TEL') || t.includes('問い合わせ')) && !phone) {
-          phone = tdText || '';
-        }
-        if ((t.includes('ジャンル') || t.includes('料理')) && !genre) {
-          genre = tdFull || '';
-        }
+        if (t.includes('店名') && (!name || name === doc.title.split('|')[0].trim())) name = tdText || name;
+        if (t.includes('住所') && !address) address = tdFull || '';
+        if ((t.includes('電話') || t.includes('TEL') || t.includes('問い合わせ')) && !phone) phone = tdText || '';
+        if ((t.includes('ジャンル') || t.includes('料理')) && !genre) genre = tdFull || '';
         if (t.includes('営業時間') && !businessHours) {
           businessHours = Array.from(td.childNodes)
-            .map(n => n.textContent.trim())
-            .filter(Boolean)
-            .join(' ');
+            .map(n => n.textContent.trim()).filter(Boolean).join(' ');
         }
-        if (t.includes('定休日') && !regularHoliday) {
-          regularHoliday = tdText || '';
-        }
+        if (t.includes('定休日') && !regularHoliday) regularHoliday = tdText || '';
       });
 
-      // ── パターン2: dl/dt/dd 構造 ──
       if (!businessHours && !regularHoliday) {
         doc.querySelectorAll('dl').forEach(dl => {
           const dt = dl.querySelector('dt');
           const dd = dl.querySelector('dd');
           if (!dt || !dd) return;
-
-          const t   = dt.textContent.trim();
+          const t = dt.textContent.trim();
           const val = dd.textContent.replace(/\s+/g, ' ').trim();
-
-          if (t.includes('営業時間') && !businessHours) businessHours  = val;
-          if (t.includes('定休日')   && !regularHoliday) regularHoliday = dd.textContent.trim().split('\n')[0].trim();
-          if (t.includes('住所')     && !address)         address        = val;
+          if (t.includes('営業時間') && !businessHours) businessHours = val;
+          if (t.includes('定休日') && !regularHoliday) regularHoliday = dd.textContent.trim().split('\n')[0].trim();
+          if (t.includes('住所') && !address) address = val;
           if ((t.includes('ジャンル') || t.includes('料理')) && !genre) genre = val;
         });
       }
 
-      // ── パターン3: ラベル要素の直後要素からパース（Alikeページ等）──
       if (!businessHours || !regularHoliday) {
         const allElements = doc.querySelectorAll('td, dd, span, p, div');
         let prevLabel = '';
         allElements.forEach(el => {
           const t = el.textContent.trim();
-          if (['営業時間', '定休日', '住所', '電話', 'ジャンル'].includes(t)) {
-            prevLabel = t;
-            return;
-          }
-          if (prevLabel === '営業時間' && !businessHours && t.length > 3) {
-            businessHours = t.replace(/\s+/g, ' ').trim();
-            prevLabel = '';
-          }
-          if (prevLabel === '定休日' && !regularHoliday && t.length >= 1) {
-            regularHoliday = t.trim().split('\n')[0].trim();
-            prevLabel = '';
-          }
-          if (prevLabel === '住所' && !address && t.length > 3) {
-            address = t.replace(/\s+/g, ' ').trim();
-            prevLabel = '';
-          }
-          if (prevLabel === '電話' && !phone && t.length > 5) {
-            phone = t.trim().split('\n')[0].trim();
-            prevLabel = '';
-          }
-          if (prevLabel === 'ジャンル' && !genre && t.length >= 2) {
-            genre = t.replace(/\s+/g, ' ').trim();
-            prevLabel = '';
-          }
+          if (['営業時間', '定休日', '住所', '電話', 'ジャンル'].includes(t)) { prevLabel = t; return; }
+          if (prevLabel === '営業時間' && !businessHours && t.length > 3) { businessHours = t.replace(/\s+/g, ' ').trim(); prevLabel = ''; }
+          if (prevLabel === '定休日' && !regularHoliday && t.length >= 1) { regularHoliday = t.trim().split('\n')[0].trim(); prevLabel = ''; }
+          if (prevLabel === '住所' && !address && t.length > 3) { address = t.replace(/\s+/g, ' ').trim(); prevLabel = ''; }
+          if (prevLabel === '電話' && !phone && t.length > 5) { phone = t.trim().split('\n')[0].trim(); prevLabel = ''; }
+          if (prevLabel === 'ジャンル' && !genre && t.length >= 2) { genre = t.replace(/\s+/g, ' ').trim(); prevLabel = ''; }
         });
       }
 
-      // ── 住所・電話のフォールバック ──
       if (!address) {
         address = shopInner.querySelector('.shopDetailInfoAddress')?.textContent?.trim()
           || shopInner.querySelector('.address')?.textContent?.trim() || '';
@@ -333,7 +268,6 @@ async function fetchAndParseDetail(link, siteType) {
           || shopInner.querySelector('a[href^="tel:"]')?.textContent?.trim() || '';
       }
 
-      // ── 電話番号 2段階フェッチ ──
       const telLinkNode = doc.querySelector('.telLink');
       if (telLinkNode || !phone || phone.includes('電話番号を表示する')) {
         try {
@@ -347,21 +281,16 @@ async function fetchAndParseDetail(link, siteType) {
               telUrl = baseUrl + '/' + telUrl;
             }
           }
-          if (!telUrl) {
-            telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
-          }
+          if (!telUrl) telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
 
           await sleep(500);
-
-          const telRes  = await fetch(telUrl);
+          const telRes = await fetch(telUrl);
           const telHtml = await telRes.text();
-          const telDoc  = new DOMParser().parseFromString(telHtml, 'text/html');
-
+          const telDoc = new DOMParser().parseFromString(telHtml, 'text/html');
           const telNode = telDoc.querySelector('.telephoneNumber')
             || telDoc.querySelector('.tel')
             || telDoc.querySelector('.telephone')
             || telDoc.querySelector('a[href^="tel:"]');
-
           if (telNode) {
             let rawTel = telNode.textContent.trim();
             if (telNode.tagName === 'A' && telNode.getAttribute('href')?.startsWith('tel:')) {
@@ -371,22 +300,20 @@ async function fetchAndParseDetail(link, siteType) {
               phone = rawTel;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       address = address.replace(/地図を見る/g, '').replace(/\s+/g, ' ').replace(/\n/g, '').trim();
-      phone   = phone.replace(/[^\d\-]/g, '');
-      name    = name.replace(/\n/g, '').trim();
-      genre   = genre.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+      phone = phone.replace(/[^\d\-]/g, '');
+      name = name.replace(/\n/g, '').trim();
+      genre = genre.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
 
       let combinedHours = '';
-      if (businessHours)  combinedHours += `【営業時間】${businessHours} `;
+      if (businessHours) combinedHours += `【営業時間】${businessHours} `;
       if (regularHoliday) combinedHours += `【定休日】${regularHoliday}`;
       combinedHours = combinedHours.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-      return {
-        name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper'
-      };
+      return { name, genre, address, phone, business_hours: combinedHours, url: link, source: 'hotpepper' };
     }
   } catch (e) {
     return { name: '', genre: '', address: '', phone: '', business_hours: '', url: link, source: siteType, _error: e.message };
@@ -413,7 +340,7 @@ async function runCrawlTask(tabId) {
       sendToBackground(tabId, 'PAGE_START', { page: pageNum, collected, siteName });
 
       await sleep(DELAY_LIST_FETCH);
-      const res  = await fetch(currentListUrl);
+      const res = await fetch(currentListUrl);
       const html = await res.text();
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
@@ -424,7 +351,7 @@ async function runCrawlTask(tabId) {
         if (!task.metadata.area || !task.metadata.industry) {
           const parts = doc.title.split(' ');
           if (parts.length >= 2) {
-            if (!task.metadata.area)     task.metadata.area     = parts[0];
+            if (!task.metadata.area) task.metadata.area = parts[0];
             if (!task.metadata.industry) task.metadata.industry = parts[1];
           }
         }
@@ -456,27 +383,25 @@ async function runCrawlTask(tabId) {
             const detail = await fetchAndParseDetail(link, siteType);
             if (detail && detail.name) {
               const normalized = normalizeBusinessHours(detail.business_hours || '');
-
               const finalDetail = {
-                name:            detail.name,
-                genre:           detail.genre,
-                address:         detail.address,
-                phone:           detail.phone || '',
+                name: detail.name,
+                genre: detail.genre,
+                address: detail.address,
+                phone: detail.phone || '',
                 regular_holiday: normalized.normalized_closed_days || '無休',
-                business_days:   normalized.business_days || '',
-                open_time:       normalized.open_time || '',
-                close_time:      normalized.close_time || '',
-                url:             detail.url,
-                source:          detail.source
+                business_days: normalized.business_days || '',
+                open_time: normalized.open_time || '',
+                close_time: normalized.close_time || '',
+                url: detail.url,
+                source: detail.source
               };
               task.results.push(finalDetail);
               collected++;
-
               sendToBackground(tabId, 'PROGRESS', {
                 collected,
                 maxItems: task.maxItems,
-                latest:   detail.name,
-                page:     pageNum,
+                latest: detail.name,
+                page: pageNum,
               });
             }
           } catch (err) {
@@ -507,33 +432,32 @@ async function runCrawlTask(tabId) {
 
     sendToBackground(tabId, 'DONE', {
       collected: task.results.length,
-      results:   task.results,
-      metadata:  task.metadata
+      results: task.results,
+      metadata: task.metadata
     });
 
     const mediaName = task.metadata.media === 'tabelog'
       ? '食べログ'
       : (task.metadata.media === 'hotpepper' ? 'ホットペッパー' : 'サイト');
-    const area     = task.metadata.area     || '';
+    const area = task.metadata.area || '';
     const industry = task.metadata.industry || '';
-    const count    = task.results.length;
+    const count = task.results.length;
 
-    let title   = '取得完了';
+    let title = '取得完了';
     let message = `${area} ${industry} (${mediaName}) の取得が完了しました。計 ${count} 件`;
 
-    if (collected >= task.maxItems) {
-      title = '取得完了 (上限到達)';
-    } else if (collected < task.maxItems) {
-      title   = '取得停止';
+    if (collected >= task.maxItems) title = '取得完了 (上限到達)';
+    else if (collected < task.maxItems) {
+      title = '取得停止';
       message = `${area} ${industry} (${mediaName}) の取得を停止しました。計 ${count} 件取得済み`;
     }
 
     chrome.runtime.sendMessage({ target: 'background', type: 'SHOW_NOTIFICATION', title, message });
     if (task.results.length > 0) {
       chrome.runtime.sendMessage({
-        target:   'background',
-        type:     'DOWNLOAD_CSV',
-        results:  task.results,
+        target: 'background',
+        type: 'DOWNLOAD_CSV',
+        results: task.results,
         metadata: task.metadata,
         tabId
       });
@@ -541,11 +465,15 @@ async function runCrawlTask(tabId) {
   }
 }
 
+// ============================================================
+// 既存リスナー（START_CRAWL / STOP_CRAWL / GET_RESULTS）
+// ============================================================
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.target !== 'offscreen') return;
 
   const tabId = message.tabId;
 
+  // ── 既存: START_CRAWL（変更なし）──
   if (message.action === 'START_CRAWL') {
     if (activeTasks.get(tabId)?.running) {
       sendResponse({ ok: false, error: 'このタブで既に実行中です' });
@@ -553,36 +481,38 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     const siteType = getSiteType(message.listUrl);
     activeTasks.set(tabId, {
-      running:  true,
-      tabId:    tabId,
-      listUrl:  message.listUrl,
-      results:  [],
+      running: true,
+      tabId,
+      listUrl: message.listUrl,
+      results: [],
       maxItems: message.maxItems || Infinity,
-      metadata: {
-        media:    siteType,
-        area:     '',
-        industry: ''
-      }
+      metadata: { media: siteType, area: '', industry: '' }
     });
-
     runCrawlTask(tabId);
     sendResponse({ ok: true });
     return;
   }
 
+  // ── 既存: STOP_CRAWL（変更なし）──
   if (message.action === 'STOP_CRAWL') {
     const task = activeTasks.get(tabId);
     if (task) task.running = false;
+    // 人気ジャンル一括取得中の場合も停止シグナルを送る
+    const popularTask = activeTasks.get(tabId + '_popular');
+    if (popularTask) popularTask.running = false;
     sendResponse({ ok: true });
     return;
   }
 
+  // ── 既存: GET_RESULTS（変更なし）──
   if (message.action === 'GET_RESULTS') {
-    const task = activeTasks.get(tabId);
+    // 人気ジャンル一括取得中は _popular タスクを優先して返す
+    const popularTask = activeTasks.get(tabId + '_popular');
+    const task = popularTask || activeTasks.get(tabId);
     if (task) {
       sendResponse({
-        results:  task.results  || [],
-        running:  task.running  || false,
+        results: task.results || [],
+        running: task.running || false,
         metadata: task.metadata || {}
       });
     } else {
@@ -590,6 +520,213 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     return;
   }
+
+  // ============================================================
+  // 追加: START_POPULAR_GENRE_CRAWL
+  // ============================================================
+  if (message.action === 'START_POPULAR_GENRE_CRAWL') {
+    if (activeTasks.get(tabId)?.running || activeTasks.get(tabId + '_popular')?.running) {
+      sendResponse({ ok: false, error: 'このタブで既に実行中です' });
+      return;
+    }
+    runPopularGenreCrawl(tabId, message.listUrl, message.maxItems || Infinity);
+    sendResponse({ ok: true });
+    return;
+  }
 });
 
-chrome.runtime.sendMessage({ target: 'background', type: 'OFFSCREEN_READY' }).catch(() => {});
+// ============================================================
+// 追加: extractGenreLinks()
+// サイトごとに人気ジャンルURL一覧を取得する
+// ============================================================
+async function extractGenreLinks(listUrl, siteType) {
+  const res = await fetch(listUrl);
+  const html = await res.text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+
+  const links = [];
+
+  if (siteType === 'tabelog') {
+    // 食べログ: #js-leftnavi-genre-anchor 配下の a[href] を取得
+    const anchor = doc.getElementById('js-leftnavi-genre-anchor');
+    if (!anchor) return links;
+
+    anchor.querySelectorAll('a[href]').forEach(a => {
+      const rawHref = a.getAttribute('href') || '';
+      const href = resolveUrl(rawHref, listUrl).split('?')[0].split('#')[0];
+      const name = a.textContent.trim().replace(/\s+/g, ' ');
+      if (!href || !name) return;
+      if (!/tabelog\.com/.test(href)) return;
+      if (links.some(l => l.url === href)) return;
+      links.push({ name, url: href });
+    });
+
+  } else if (siteType === 'hotpepper') {
+    // ホットペッパー: 候補セレクタを順番に探索して最初に見つかったものを使用
+    const GENRE_CONTAINER_SELECTORS = [
+      '#genreSearch',
+      '.genreLink',
+      '.searchGenreList',
+      '.searchResultGenre',
+      '.genreList'
+    ];
+
+    let container = null;
+    for (const sel of GENRE_CONTAINER_SELECTORS) {
+      container = doc.querySelector(sel);
+      if (container) break;
+    }
+    if (!container) return links;
+
+    container.querySelectorAll('a[href]').forEach(a => {
+      const rawHref = a.getAttribute('href') || '';
+      const href = resolveUrl(rawHref, listUrl).split('?')[0].split('#')[0];
+      const name = a.textContent.trim().replace(/\s+/g, ' ');
+      if (!href || !name) return;
+      if (!/hotpepper\.jp/.test(href)) return;
+      if (links.some(l => l.url === href)) return;
+      links.push({ name, url: href });
+    });
+  }
+
+  return links;
+}
+
+// ============================================================
+// 追加: runPopularGenreCrawl()
+// ジャンルURLを順番に巡回し、結果を統合してCSV出力する
+// ============================================================
+async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
+  const siteType = getSiteType(listUrl);
+  if (!siteType) {
+    sendToBackground(tabId, 'ERROR', { message: '対応サイトではありません' });
+    return;
+  }
+
+  // 親タスク: 停止シグナル受信用
+  const parentTaskKey = tabId + '_popular';
+  activeTasks.set(parentTaskKey, {
+    running: true,
+    results: [],
+    metadata: { media: siteType, area: '', industry: '人気ジャンル一括' }
+  });
+
+  try {
+    // ジャンルリンクを抽出
+    sendToBackground(tabId, 'INFO', { message: 'ジャンルリンクを抽出中...' });
+    let genreLinks = [];
+    try {
+      genreLinks = await extractGenreLinks(listUrl, siteType);
+    } catch (e) {
+      sendToBackground(tabId, 'ERROR', { message: `ジャンルリンク取得失敗: ${e.message}` });
+      activeTasks.delete(parentTaskKey);
+      return;
+    }
+
+    if (genreLinks.length === 0) {
+      const reason = siteType === 'tabelog'
+        ? '#js-leftnavi-genre-anchor が見つかりません。食べログの検索結果ページを開いてください。'
+        : 'ジャンルコンテナが見つかりません。ホットペッパーのエリアページを開いてください。';
+      sendToBackground(tabId, 'ERROR', { message: reason });
+      activeTasks.delete(parentTaskKey);
+      return;
+    }
+
+    sendToBackground(tabId, 'INFO', {
+      message: `${genreLinks.length} ジャンルを検出: ${genreLinks.map(g => g.name).join('、')}`
+    });
+
+    const allResults = [];
+
+    for (let i = 0; i < genreLinks.length; i++) {
+      // 停止チェック
+      const parentTask = activeTasks.get(parentTaskKey);
+      if (!parentTask || !parentTask.running) {
+        sendToBackground(tabId, 'INFO', { message: '停止リクエストにより中断しました' });
+        break;
+      }
+
+      const { name, url } = genreLinks[i];
+      sendToBackground(tabId, 'INFO', {
+        message: `[${i + 1}/${genreLinks.length}] ジャンル「${name}」 取得開始`
+      });
+
+      // 一時タスクIDで runCrawlTask を呼び出す（既存関数をそのまま使用）
+      const tempId = `${tabId}_pg_${i}`;
+      activeTasks.set(tempId, {
+        running: true,
+        tabId,                 // sendToBackground が本来の tabId へ通知するよう維持
+        listUrl: url,
+        results: [],
+        maxItems: maxItemsPerGenre,
+        metadata: { media: siteType, area: '', industry: name }
+      });
+
+      await runCrawlTask(tempId);
+
+      const finishedTask = activeTasks.get(tempId);
+      if (finishedTask?.results?.length) {
+        allResults.push(...finishedTask.results);
+      }
+      activeTasks.delete(tempId);
+
+      sendToBackground(tabId, 'INFO', {
+        message: `「${name}」完了 → 累計 ${allResults.length} 件`
+      });
+
+      // 次のジャンルへ進む前のインターバル（最終ジャンルは不要）
+      if (i < genreLinks.length - 1) {
+        const pt = activeTasks.get(parentTaskKey);
+        if (pt && pt.running) await sleep(2000);
+      }
+    }
+
+    // 結果を親タスクへ格納（GET_RESULTS で参照される）
+    const pt = activeTasks.get(parentTaskKey);
+    if (pt) {
+      pt.results = allResults;
+      pt.running = false;
+    }
+
+    // メタデータ生成
+    const metaArea = allResults[0]?.address?.replace(/\s+/g, '').slice(0, 6) || '';
+    const finalMetadata = {
+      media: siteType,
+      area: metaArea,
+      industry: '人気ジャンル一括'
+    };
+
+    // DONE 通知
+    sendToBackground(tabId, 'DONE', {
+      collected: allResults.length,
+      results: allResults,
+      metadata: finalMetadata
+    });
+
+    // CSV 出力（既存の triggerDownload を background 経由で呼び出す）
+    if (allResults.length > 0) {
+      chrome.runtime.sendMessage({
+        target: 'background',
+        type: 'DOWNLOAD_CSV',
+        results: allResults,
+        metadata: finalMetadata,
+        tabId
+      });
+    }
+
+    chrome.runtime.sendMessage({
+      target: 'background',
+      type: 'SHOW_NOTIFICATION',
+      title: '人気ジャンル一括取得 完了',
+      message: `計 ${allResults.length} 件取得しました`
+    });
+
+  } catch (err) {
+    console.error('[runPopularGenreCrawl] エラー:', err);
+    sendToBackground(tabId, 'ERROR', { message: `人気ジャンル一括取得エラー: ${err.message}` });
+  } finally {
+    activeTasks.delete(parentTaskKey);
+  }
+}
+
+chrome.runtime.sendMessage({ target: 'background', type: 'OFFSCREEN_READY' }).catch(() => { });

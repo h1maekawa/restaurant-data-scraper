@@ -17,6 +17,8 @@
       --yellow: #ffd166;
       --text: #eeeef5;
       --muted: #7878a0;
+      --purple: #a855f7;
+      --purple2: #7c3aed;
     }
 
     * {
@@ -33,7 +35,6 @@
       font-size: 12px;
     }
 
-    /* ── ヘッダー ── */
     .header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
@@ -66,7 +67,6 @@
       margin-top: 2px;
     }
 
-    /* ── セクション共通 ── */
     .section {
       padding: 12px 14px;
       border-bottom: 1px solid var(--border);
@@ -81,7 +81,6 @@
       margin-bottom: 7px;
     }
 
-    /* ── 件数スライダー ── */
     .max-row {
       display: flex;
       align-items: center;
@@ -102,7 +101,6 @@
       text-align: right;
     }
 
-    /* ── ステータスバー ── */
     .status-bar {
       background: var(--surface2);
       border: 1px solid var(--border);
@@ -169,7 +167,6 @@
       margin-top: 1px;
     }
 
-    /* ── プログレスバー ── */
     .progress-wrap {
       background: var(--surface2);
       border-radius: 4px;
@@ -186,7 +183,6 @@
       border-radius: 4px;
     }
 
-    /* ── ログ ── */
     .log-scroll {
       height: 80px;
       overflow-y: auto;
@@ -227,7 +223,6 @@
       color: var(--red);
     }
 
-    /* ── プレビューリスト ── */
     .preview-scroll {
       max-height: 140px;
       overflow-y: auto;
@@ -276,7 +271,6 @@
       color: var(--green);
     }
 
-    /* ── ボタン ── */
     .btn-row {
       display: flex;
       gap: 8px;
@@ -332,7 +326,19 @@
       color: var(--green);
     }
 
-    /* ── フッター ── */
+    /* ── 追加: 人気ジャンルボタン専用スタイル ── */
+    .btn-popular {
+      background: linear-gradient(135deg, var(--purple2), var(--purple));
+      color: #fff;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .btn-popular:not(:disabled):hover {
+      filter: brightness(1.1);
+      transform: translateY(-1px);
+    }
+
     .footer {
       padding: 8px 14px 10px;
       font-size: 10px;
@@ -389,11 +395,14 @@
 
   <!-- ボタン -->
   <div class="section">
+    <!-- 既存ボタン行: 変更なし -->
     <div class="btn-row">
       <button class="btn btn-start" id="startBtn">▶ 取得開始</button>
       <button class="btn btn-stop" id="stopBtn" disabled>■ 停止</button>
       <button class="btn btn-dl" id="dlBtn" disabled>⬇ CSV</button>
     </div>
+    <!-- 追加: 人気ジャンル一括取得ボタン -->
+    <button class="btn btn-popular" id="popularGenreBtn">🗂 人気ジャンル一括取得</button>
   </div>
 
   <!-- プレビュー -->

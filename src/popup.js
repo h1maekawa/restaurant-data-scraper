@@ -6,27 +6,27 @@
 // ============================================================
 // DOM
 // ============================================================
-const maxSlider     = document.getElementById('maxSlider');
-const maxVal        = document.getElementById('maxVal');
-const dot           = document.getElementById('dot');
-const statusMain    = document.getElementById('statusMain');
-const statusSub     = document.getElementById('statusSub');
-const progressBar   = document.getElementById('progressBar');
-const logScroll     = document.getElementById('logScroll');
-const startBtn      = document.getElementById('startBtn');
-const stopBtn       = document.getElementById('stopBtn');
-const dlBtn         = document.getElementById('dlBtn');
-const previewSection= document.getElementById('previewSection');
-const previewList   = document.getElementById('previewList');
+const maxSlider = document.getElementById('maxSlider');
+const maxVal = document.getElementById('maxVal');
+const dot = document.getElementById('dot');
+const statusMain = document.getElementById('statusMain');
+const statusSub = document.getElementById('statusSub');
+const progressBar = document.getElementById('progressBar');
+const logScroll = document.getElementById('logScroll');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+const dlBtn = document.getElementById('dlBtn');
+const previewSection = document.getElementById('previewSection');
+const previewList = document.getElementById('previewList');
 
 // ============================================================
 // 状態
 // ============================================================
-let allResults   = [];
-let isRunning    = false;
-let maxItems     = parseInt(maxSlider.value) >= 500 ? Infinity : parseInt(maxSlider.value || 300);
+let allResults = [];
+let isRunning = false;
+let maxItems = parseInt(maxSlider.value) >= 500 ? Infinity : parseInt(maxSlider.value || 300);
 let currentTabId = null;
-let metadata     = { area: '', industry: '', media: '' };
+let metadata = { area: '', industry: '', media: '' };
 
 // ============================================================
 // スライダー
@@ -61,12 +61,11 @@ function addLog(msg, type = 'info') {
 function setStatus(state, main, sub = '') {
   dot.className = `dot ${state}`;
   statusMain.textContent = main;
-  statusSub.textContent  = sub;
+  statusSub.textContent = sub;
 }
 
 function updateProgress(collected, total) {
   if (total === Infinity) {
-    // 上限なしの場合は徐々に伸びて最大95%で留まるようにする（進捗感の演出）
     const pct = Math.min(95, 10 + collected * 2);
     progressBar.style.width = pct + '%';
     return;
@@ -76,7 +75,7 @@ function updateProgress(collected, total) {
 }
 
 // ============================================================
-// プレビュー描画（営業日・開始・終了に対応）
+// プレビュー描画
 // ============================================================
 function renderPreview(data) {
   previewList.innerHTML = '';
@@ -84,14 +83,11 @@ function renderPreview(data) {
   items.forEach(r => {
     const el = document.createElement('div');
     el.className = 'preview-item';
-    
+
     let hoursPreview = '';
-    
-    // 営業日・開始・終了時間の表示
     if (r.business_days || r.open_time || r.close_time) {
       hoursPreview += `<div class="pi-hours" style="font-size: 10px; color: var(--muted); margin-top: 3px;">🕒 営業: ${esc(r.business_days)} ${esc(r.open_time)}〜${esc(r.close_time)}</div>`;
     }
-    // 定休日の表示
     if (r.regular_holiday) {
       hoursPreview += `<div class="pi-closed" style="font-size: 10px; color: var(--red); margin-top: 1px;">📅 定休日: ${esc(r.regular_holiday)}</div>`;
     }
@@ -111,26 +107,26 @@ function renderPreview(data) {
 
 function esc(s) {
   return String(s || '')
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ============================================================
-// CSV 生成・ダウンロード（営業日・開始・終了に対応）
+// CSV 生成・ダウンロード
 // ============================================================
 function toCSV(data) {
   const headers = ['店名', 'ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
   const keyMapping = {
-    '店名':   'name',
+    '店名': 'name',
     'ジャンル': 'genre',
-    '住所':   'address',
+    '住所': 'address',
     '電話番号': 'phone',
-    '定休日':  'regular_holiday',
-    '営業日':  'business_days',
+    '定休日': 'regular_holiday',
+    '営業日': 'business_days',
     '営業開始': 'open_time',
     '営業終了': 'close_time',
-    'URL':    'url',
-    '媒体':   'source'
+    'URL': 'url',
+    '媒体': 'source'
   };
 
   const ef = v => {
@@ -149,22 +145,24 @@ function toCSV(data) {
 
 function downloadCSV() {
   if (!allResults.length) return;
-  const csv  = toCSV(allResults);
+  const csv = toCSV(allResults);
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  
+  const url = URL.createObjectURL(blob);
+
   const area = metadata.area || '不明';
   const industry = metadata.industry || '飲食店';
-  const media = metadata.media === 'tabelog' ? '食べログ' : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
-  
-  const now  = new Date();
-  const ts   = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
-  
+  const media = metadata.media === 'tabelog'
+    ? '食べログ'
+    : (metadata.media === 'hotpepper' ? 'ホットペッパー' : '媒体不明');
+
+  const now = new Date();
+  const ts = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
   let filename = `${area}_${industry}_${media}_${ts}.csv`;
   filename = filename.replace(/[\/\\:*?"<>|]/g, '_');
 
-  const a    = document.createElement('a');
-  a.href     = url;
+  const a = document.createElement('a');
+  a.href = url;
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
@@ -175,17 +173,18 @@ function downloadCSV() {
 // ボタン状態切り替え
 // ============================================================
 function setButtons(running) {
-  isRunning        = running;
+  isRunning = running;
   startBtn.disabled = running;
-  stopBtn.disabled  = !running;
+  stopBtn.disabled = !running;
   maxSlider.disabled = running;
+  // 人気ジャンルボタンも連動して制御
+  popularGenreBtn.disabled = running;
 }
 
 // ============================================================
 // background からのメッセージ受信
 // ============================================================
 chrome.runtime.onMessage.addListener((msg) => {
-  // タブIDが一致しないメッセージは無視
   if (msg.tabId !== currentTabId) return;
 
   switch (msg.type) {
@@ -232,7 +231,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 });
 
 // ============================================================
-// 取得開始
+// 取得開始（既存 START_CRAWL: 変更なし）
 // ============================================================
 function detectSite(url) {
   if (/tabelog\.com/.test(url)) return 'tabelog';
@@ -270,9 +269,9 @@ startBtn.addEventListener('click', async () => {
   setButtons(true);
 
   chrome.runtime.sendMessage({
-    action:   'START_CRAWL',
-    tabId:    tab.id,
-    listUrl:  tab.url,
+    action: 'START_CRAWL',
+    tabId: tab.id,
+    listUrl: tab.url,
     maxItems: maxItems,
   }, res => {
     if (!res?.ok) {
@@ -298,10 +297,57 @@ stopBtn.addEventListener('click', () => {
 dlBtn.addEventListener('click', downloadCSV);
 
 // ============================================================
+// 人気ジャンル一括取得ボタン（追加）
+// ============================================================
+const popularGenreBtn = document.getElementById('popularGenreBtn');
+
+popularGenreBtn.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) {
+    addLog('アクティブタブが見つかりません', 'err');
+    return;
+  }
+
+  const url = tab.url || '';
+  const siteType = detectSite(url);
+
+  if (!siteType) {
+    addLog('対応サイトの検索結果ページを開いてください', 'warn');
+    setStatus('error', '対応サイトではありません', '食べログ・ホットペッパー専用です');
+    return;
+  }
+
+  // UI リセット
+  allResults = [];
+  logScroll.innerHTML = '';
+  previewList.innerHTML = '';
+  previewSection.style.display = 'none';
+  dlBtn.disabled = true;
+  updateProgress(0, maxItems);
+
+  const siteName = siteType === 'tabelog' ? '食べログ' : 'ホットペッパー';
+  const limitText = maxItems === Infinity ? '上限なし' : `上限 ${maxItems}件`;
+  addLog(`${siteName} 人気ジャンル一括取得 開始 (${limitText})`, 'good');
+  setStatus('running', `${siteName} のジャンルリンクを抽出中...`, limitText);
+  setButtons(true);
+
+  chrome.runtime.sendMessage({
+    action: 'START_POPULAR_GENRE_CRAWL',
+    tabId: tab.id,
+    listUrl: tab.url,
+    maxItems: maxItems,
+  }, res => {
+    if (!res?.ok) {
+      addLog('人気ジャンル一括取得 開始失敗: ' + (res?.error || '不明'), 'err');
+      setButtons(false);
+    }
+  });
+});
+
+// ============================================================
 // 起動時
 // ============================================================
 (async () => {
-  // スライダー初期設定の同期
   const val = parseInt(maxSlider.value);
   if (val >= 500) {
     maxItems = Infinity;
