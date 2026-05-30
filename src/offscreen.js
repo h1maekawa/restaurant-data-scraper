@@ -13,53 +13,6 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-// ============================================================
-// generateXlsxBase64()
-// SheetJS (XLSX) を使ってxlsxをbase64文字列で返す
-// offscreen.html の <script src="xlsx.full.min.js"> で読み込み済み
-// ============================================================
-function generateXlsxBase64(results, genreLinks) {
-  if (typeof XLSX === 'undefined') {
-    throw new Error('SheetJS (XLSX) が未定義です');
-  }
-
-  const headers = ['店名', 'ジャンル', '取得元ジャンル', '住所', '電話番号', '定休日', '営業日', '営業開始', '営業終了', 'URL', '媒体'];
-  const keyMapping = {
-    '店名': 'name', 'ジャンル': 'genre', '取得元ジャンル': 'source_genre',
-    '住所': 'address', '電話番号': 'phone', '定休日': 'regular_holiday',
-    '営業日': 'business_days', '営業開始': 'open_time', '営業終了': 'close_time',
-    'URL': 'url', '媒体': 'source'
-  };
-
-  const wb = XLSX.utils.book_new();
-
-  // シート1: 全件
-  const allRows = [headers, ...results.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
-  const wsAll = XLSX.utils.aoa_to_sheet(allRows);
-  XLSX.utils.book_append_sheet(wb, wsAll, '全件');
-
-  // シート2以降: ジャンルごと
-  const genreNames = genreLinks
-    ? genreLinks.map(g => g.name)
-    : [...new Set(results.map(r => r.source_genre).filter(Boolean))];
-
-  genreNames.forEach(genreName => {
-    const genreResults = results.filter(r => r.source_genre === genreName);
-    if (genreResults.length === 0) return;
-    const rows = [headers, ...genreResults.map(r => headers.map(h => r[keyMapping[h]] ?? ''))];
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    const sheetName = genreName.replace(/[\/\\:*?\[\]]/g, '').slice(0, 31);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  });
-
-  // ArrayBuffer → base64
-  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-  const uint8 = new Uint8Array(buf);
-  let binary = '';
-  uint8.forEach(b => binary += String.fromCharCode(b));
-  return btoa(binary);
-}
-
 function getSiteType(url) {
   if (/tabelog\.com/.test(url)) return 'tabelog';
   if (/hotpepper\.jp/.test(url)) return 'hotpepper';
@@ -97,10 +50,6 @@ function extractMetadata(doc, siteType) {
   return meta;
 }
 
-// ============================================================
-// normalizeBusinessHours()
-// 営業時間文字列から定休日・営業日・開始時間・終了時間を抽出
-// ============================================================
 function normalizeBusinessHours(hoursText) {
   if (!hoursText) {
     return { normalized_closed_days: '', business_days: '', open_time: '', close_time: '' };
@@ -108,7 +57,6 @@ function normalizeBusinessHours(hoursText) {
 
   const text = hoursText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-  // 定休日を抽出
   let normalized_closed_days = '';
   const closedMatch = text.match(/【定休日】([^【]+)/);
   if (closedMatch) {
@@ -125,7 +73,6 @@ function normalizeBusinessHours(hoursText) {
     }
   }
 
-  // 営業時間ブロックを取得
   let hoursBlock = '';
   const hoursMatch = text.match(/【営業時間】([^【]+)/);
   if (hoursMatch) {
@@ -134,7 +81,6 @@ function normalizeBusinessHours(hoursText) {
     hoursBlock = text;
   }
 
-  // 営業日（曜日）を抽出
   let business_days = '';
   const dayPatterns = [
     /([月火水木金土日・〜～\-–―,、]+曜日?[^0-9（(（：:〜～\-–―]{0,10})/,
@@ -146,25 +92,21 @@ function normalizeBusinessHours(hoursText) {
     if (m) { business_days = m[1].trim(); break; }
   }
 
-  // 開始・終了時間を抽出
   let open_time = '';
   let close_time = '';
 
-  // HH:MM〜HH:MM または HH:MM-HH:MM パターン
   const timeRangePattern = /(\d{1,2}[：:]\d{2})\s*[〜～\-–―]\s*(\d{1,2}[：:]\d{2})/;
   const timeMatch = hoursBlock.match(timeRangePattern);
   if (timeMatch) {
     open_time = timeMatch[1].replace('：', ':');
     close_time = timeMatch[2].replace('：', ':');
   } else {
-    // HH:MM のみ（開始時間だけある場合）
     const singleTime = hoursBlock.match(/(\d{1,2}[：:]\d{2})/);
     if (singleTime) {
       open_time = singleTime[1].replace('：', ':');
     }
   }
 
-  // 24:00 などの表記を正規化
   if (close_time === '24:00' || close_time === '0:00') close_time = '24:00';
 
   return { normalized_closed_days, business_days, open_time, close_time };
@@ -731,7 +673,7 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
         const name = a.textContent.trim().replace(/\s+/g, ' ');
         if (!href || !name) return;
         if (!/hotpepper\.jp/.test(href)) return;
-        if (!/\/G\d+\/$/.test(href)) return;
+        if (!/\/G\d+\//.test(href)) return;
         if (links.some(l => l.url === href)) return;
         links.push({ name, url: href });
       });
@@ -847,33 +789,13 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
     });
 
     if (allResults.length > 0) {
-      // offscreen側でxlsx生成（SheetJSはoffscreen.htmlのscriptタグで読み込み済み）
-      let xlsxBase64 = null;
-      try {
-        xlsxBase64 = generateXlsxBase64(allResults, genreLinks);
-      } catch (e) {
-        console.warn('[offscreen] xlsx生成失敗、CSVにフォールバック:', e);
-      }
-
-      if (xlsxBase64) {
-        chrome.runtime.sendMessage({
-          target: 'background',
-          type: 'DOWNLOAD_XLSX',
-          base64: xlsxBase64,
-          results: allResults,
-          metadata: finalMetadata,
-          tabId
-        });
-      } else {
-        // xlsx生成失敗時はCSVにフォールバック
-        chrome.runtime.sendMessage({
-          target: 'background',
-          type: 'DOWNLOAD_CSV',
-          results: allResults,
-          metadata: finalMetadata,
-          tabId
-        });
-      }
+      chrome.runtime.sendMessage({
+        target: 'background',
+        type: 'DOWNLOAD_CSV',
+        results: allResults,
+        metadata: finalMetadata,
+        tabId
+      });
     }
 
     chrome.runtime.sendMessage({

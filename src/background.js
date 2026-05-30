@@ -3,8 +3,7 @@
  * ※ SheetJS は offscreen.html で読み込むため importScripts 不要
  */
 
-const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
-
+const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html';
 let isOffscreenReady = false;
 let offscreenReadyResolver = null;
 
