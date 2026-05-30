@@ -50,6 +50,79 @@ function extractMetadata(doc, siteType) {
   return meta;
 }
 
+// ============================================================
+// normalizeBusinessHours()
+// 営業時間文字列から定休日・営業日・開始時間・終了時間を抽出
+// ============================================================
+function normalizeBusinessHours(hoursText) {
+  if (!hoursText) {
+    return { normalized_closed_days: '', business_days: '', open_time: '', close_time: '' };
+  }
+
+  const text = hoursText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+  // 定休日を抽出
+  let normalized_closed_days = '';
+  const closedMatch = text.match(/【定休日】([^【]+)/);
+  if (closedMatch) {
+    normalized_closed_days = closedMatch[1].trim();
+  } else {
+    const closedPatterns = [
+      /定休日[：:]\s*([^\s。、]+)/,
+      /休み[：:]\s*([^\s。、]+)/,
+      /定休[：:]\s*([^\s。、]+)/,
+    ];
+    for (const pat of closedPatterns) {
+      const m = text.match(pat);
+      if (m) { normalized_closed_days = m[1].trim(); break; }
+    }
+  }
+
+  // 営業時間ブロックを取得
+  let hoursBlock = '';
+  const hoursMatch = text.match(/【営業時間】([^【]+)/);
+  if (hoursMatch) {
+    hoursBlock = hoursMatch[1].trim();
+  } else {
+    hoursBlock = text;
+  }
+
+  // 営業日（曜日）を抽出
+  let business_days = '';
+  const dayPatterns = [
+    /([月火水木金土日・〜～\-–―,、]+曜日?[^0-9（(（：:〜～\-–―]{0,10})/,
+    /(月[〜～\-–―]金|月[〜～\-–―]土|月[〜～\-–―]日|火[〜～\-–―]日)/,
+    /([月火水木金土日]+[〜～\-–―][月火水木金土日]+)/,
+  ];
+  for (const pat of dayPatterns) {
+    const m = hoursBlock.match(pat);
+    if (m) { business_days = m[1].trim(); break; }
+  }
+
+  // 開始・終了時間を抽出
+  let open_time = '';
+  let close_time = '';
+
+  // HH:MM〜HH:MM または HH:MM-HH:MM パターン
+  const timeRangePattern = /(\d{1,2}[：:]\d{2})\s*[〜～\-–―]\s*(\d{1,2}[：:]\d{2})/;
+  const timeMatch = hoursBlock.match(timeRangePattern);
+  if (timeMatch) {
+    open_time = timeMatch[1].replace('：', ':');
+    close_time = timeMatch[2].replace('：', ':');
+  } else {
+    // HH:MM のみ（開始時間だけある場合）
+    const singleTime = hoursBlock.match(/(\d{1,2}[：:]\d{2})/);
+    if (singleTime) {
+      open_time = singleTime[1].replace('：', ':');
+    }
+  }
+
+  // 24:00 などの表記を正規化
+  if (close_time === '24:00' || close_time === '0:00') close_time = '24:00';
+
+  return { normalized_closed_days, business_days, open_time, close_time };
+}
+
 function tabelogGetLinks(doc, baseUrl) {
   const links = [];
   const RST_URL_RE = /tabelog\.com\/[a-z]+\/A\d+\/A\d+\/\d+\//;
