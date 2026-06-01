@@ -74,6 +74,13 @@ const HOLIDAY_NOISE_PATTERNS = [
   /※.*?(\n|$)/g,
   /\(※.*?\)/g,
   /（※.*?）/g,
+  /毎週/g,
+  /隔週/g,
+  /第[一二三四五1-5]・?/g,
+  /営業時間.*?(\n|$)/g,
+  /ご来店前.*?(\n|$)/g,
+  /店舗にご確認.*?(\n|$)/g,
+  /変更となる場合.*?(\n|$)/g,
 ];
 
 function normalizeDayText(text) {
@@ -91,7 +98,7 @@ function extractDaySet(text) {
   const daySet = new Set();
 
   // パターン1: 月〜金、月-金 などの範囲指定
-  const rangePattern = /([月火水木金土日])[〜~－\-ー]([月火水木金土日])/g;
+  const rangePattern = /([月火水木金土日])[〜～~－\-ーー–—]([月火水木金土日])/g;
   let m;
   while ((m = rangePattern.exec(normalized)) !== null) {
     const start = ALL_DAYS.indexOf(m[1]);
@@ -102,7 +109,7 @@ function extractDaySet(text) {
   }
 
   // パターン2: 範囲部分を除いた残りから個別曜日を抽出
-  const withoutRange = normalized.replace(/[月火水木金土日][〜~－\-ー][月火水木金土日]/g, '  ');
+  const withoutRange = normalized.replace(/[月火水木金土日][〜～~－\-ーー–—][月火水木金土日]/g, '  ');
   const listPattern = /[月火水木金土日]/g;
   let m2;
   while ((m2 = listPattern.exec(withoutRange)) !== null) {
@@ -124,41 +131,44 @@ function cleanHolidayText(text) {
 function resolveFinalHoliday(rawHolidayText, businessDaySet) {
   const cleaned = cleanHolidayText(rawHolidayText);
 
+  // 優先1: 無休・年中無休
   if (/無休|年中無休/.test(cleaned)) return '無休';
+
+  // 優先2: ハイフンのみ
   if (/^[\-－ー\s]+$/.test(cleaned)) return '-';
 
+  // 優先3: 定休日テキストから曜日を直接抽出
   const holidayDaySet = extractDaySet(cleaned);
   if (holidayDaySet.size > 0) {
-    const holidayDays = ALL_DAYS.filter(d => holidayDaySet.has(d));
-    // 定休日と営業日が完全一致している場合は逆転の可能性 → 逆算で上書き
-    if (businessDaySet && businessDaySet.size > 0) {
-      const overlap = holidayDays.filter(d => businessDaySet.has(d));
-      if (overlap.length === holidayDays.length) {
-        const calculated = ALL_DAYS.filter(d => !businessDaySet.has(d));
-        if (calculated.length > 0 && calculated.length < 7) return calculated.join('・');
-        if (calculated.length === 0) return '無休';
-      }
-    }
-    return holidayDays.join('・');
+    return ALL_DAYS.filter(d => holidayDaySet.has(d)).join('・');
   }
 
+  // 優先4: 定休日記載なし → 営業日から逆算
   if (businessDaySet && businessDaySet.size > 0) {
     const calculated = ALL_DAYS.filter(d => !businessDaySet.has(d));
-    if (calculated.length > 0 && calculated.length < 7) {
-      return calculated.join('・');
-    }
-    if (calculated.length === 0) return '無休';
+    if (calculated.length === 0 || businessDaySet.size === 7) return '無休';
+    if (calculated.length > 0 && calculated.length < 7) return calculated.join('・');
   }
 
+  // 優先5: 何も取れない → 空欄
   return '';
 }
 
 // 営業日の最終出力値を確定する関数
-function resolveFinalBusinessDays(rawBusinessDayText) {
+function resolveFinalBusinessDays(rawBusinessDayText, holidayDaySet) {
+  // 優先1: rawBusinessDayText から直接抽出（ホットペッパーはここで完結）
   const daySet = extractDaySet(rawBusinessDayText);
   if (daySet.size > 0) {
     return ALL_DAYS.filter(d => daySet.has(d)).join('・');
   }
+
+  // 優先2: 食べログ等で rawBusinessDayText が取れない場合、
+  // 定休日セットから逆算して営業日を補完する
+  if (holidayDaySet && holidayDaySet.size > 0 && holidayDaySet.size < 7) {
+    const calculated = ALL_DAYS.filter(d => !holidayDaySet.has(d));
+    if (calculated.length > 0) return calculated.join('・');
+  }
+
   return '';
 }
 
@@ -170,38 +180,86 @@ function normalizeBusinessHours(hoursText) {
   const text = hoursText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
   let rawHolidayText = '';
-  const closedMatch = text.match(/【定休日】([^【]+)/);
-  if (closedMatch) {
-    rawHolidayText = closedMatch[1].trim();
+  // 年中無休・無休の記載を最優先で検出
+  if (/年中無休|無休/.test(text)) {
+    rawHolidayText = '無休';
   } else {
-    const closedPatterns = [
-      /定休日[：:]\s*([^\s。、]+)/,
-      /休み[：:]\s*([^\s。、]+)/,
-      /定休[：:]\s*([^\s。、]+)/,
-    ];
-    for (const pat of closedPatterns) {
-      const m = text.match(pat);
-      if (m) { rawHolidayText = m[1].trim(); break; }
+    // パターン1: 【定休日】タグ形式
+    const holidayMatch = text.match(/【定休日】([^【]+)/);
+    if (holidayMatch) {
+      rawHolidayText = holidayMatch[1].trim();
+    }
+    // パターン2: ■定休日 形式（食べログの一部店舗）
+    if (!rawHolidayText) {
+      const squareMatch = text.match(/■定休日\s*[\r\n]+([^\r\n■【]+)/);
+      if (squareMatch) {
+        rawHolidayText = squareMatch[1].trim();
+      }
+    }
+    // パターン3: 定休日： または 定休日: の形式
+    if (!rawHolidayText) {
+      const colonMatch = text.match(/定休日[：:]([^【■\r\n]+)/);
+      if (colonMatch) {
+        rawHolidayText = colonMatch[1].trim();
+      }
     }
   }
 
   let hoursBlock = '';
   const hoursMatch = text.match(/【営業時間】([^【]+)/);
   if (hoursMatch) {
-    hoursBlock = hoursMatch[1].trim();
+    // 定休日ブロックが混入しないよう【定休日】以降を除去
+    hoursBlock = hoursMatch[1].replace(/【定休日】.*/g, '').trim();
   } else {
-    hoursBlock = text;
+    // 【】がない場合も定休日キーワード以降を除去
+    hoursBlock = text
+      .replace(/定休日[：:].*/g, '')
+      .replace(/休み[：:].*/g, '')
+      .trim();
   }
 
   let rawBusinessDayText = '';
   const dayPatterns = [
-    /([月火水木金土日・〜～\-–―,、]+曜日?[^0-9（(（：:〜～\-–―]{0,10})/,
-    /(月[〜～\-–―]金|月[〜～\-–―]土|月[〜～\-–―]日|火[〜～\-–―]日)/,
-    /([月火水木金土日]+[〜～\-–―][月火水木金土日]+)/,
+    /([月火水木金土日・〜～~－\-ーー–—,、]+曜日?[^0-9（(（：:〜～~\-–―]{0,10})/,
+    /(月[〜～~－\-ーー–—]金|月[〜～~－\-ーー–—]土|月[〜～~－\-ーー–—]日|火[〜～~－\-ーー–—]日)/,
+    /([月火水木金土日]+[〜～~－\-ーー–—][月火水木金土日]+)/,
   ];
-  for (const pat of dayPatterns) {
-    const m = hoursBlock.match(pat);
-    if (m) { rawBusinessDayText = m[1].trim(); break; }
+  // | 区切りの全ブロックからすべての営業曜日を集約する
+  const allBusinessDaySet = new Set();
+  const blocks = hoursBlock.split('|');
+  for (const block of blocks) {
+    const blockTrimmed = block.trim();
+    // 祝日・祝前日のみのブロックはスキップ（曜日に換算できないため）
+    const hasDayChar = /[月火水木金土日]/.test(blockTrimmed);
+    if (!hasDayChar) continue;
+    for (const pat of dayPatterns) {
+      const m = blockTrimmed.match(pat);
+      if (m) {
+        extractDaySet(m[1].trim()).forEach(d => allBusinessDaySet.add(d));
+        break;
+      }
+    }
+  }
+  if (allBusinessDaySet.size > 0) {
+    rawBusinessDayText = ALL_DAYS.filter(d => allBusinessDaySet.has(d)).join('・');
+  } else {
+    // フォールバック: 従来通り先頭から1件取得
+    for (const pat of dayPatterns) {
+      const m = hoursBlock.match(pat);
+      if (m) { rawBusinessDayText = m[1].trim(); break; }
+    }
+  }
+
+  // 営業日と定休日に同じ曜日が含まれる場合は混入とみなしてクリア
+  if (rawBusinessDayText && rawHolidayText) {
+    const tempBizSet = extractDaySet(rawBusinessDayText);
+    const tempHolSet = extractDaySet(cleanHolidayText(rawHolidayText));
+    if (tempBizSet.size > 0 && tempHolSet.size > 0) {
+      const overlap = [...tempBizSet].filter(d => tempHolSet.has(d));
+      if (overlap.length > 0) {
+        rawBusinessDayText = '';
+      }
+    }
   }
 
   let finalOpenTime = '';
@@ -222,9 +280,19 @@ function normalizeBusinessHours(hoursText) {
   if (finalCloseTime === '24:00' || finalCloseTime === '0:00') finalCloseTime = '24:00';
 
   // 定休日・営業日の最終値を確定
-  const businessDaySet   = extractDaySet(rawBusinessDayText);
-  const finalHoliday     = resolveFinalHoliday(rawHolidayText, businessDaySet);
-  const finalBusinessDays = ALL_DAYS.filter(d => businessDaySet.has(d)).join('・');
+  const businessDaySet     = extractDaySet(rawBusinessDayText);
+  const finalHoliday       = resolveFinalHoliday(rawHolidayText, businessDaySet);
+
+  let finalBusinessDays;
+  if (finalHoliday === '無休') {
+    // 定休日が無休 → 全曜日営業
+    finalBusinessDays = '月・火・水・木・金・土・日';
+  } else {
+    const resolvedHolidaySet = /^[月火水木金土日・]+$/.test(finalHoliday)
+      ? extractDaySet(finalHoliday)
+      : null;
+    finalBusinessDays = resolveFinalBusinessDays(rawBusinessDayText, resolvedHolidaySet);
+  }
 
   return {
     holiday:      finalHoliday,      // 定休日（曜日 or 無休 or - or 空欄）
@@ -331,12 +399,39 @@ async function fetchAndParseDetail(link, siteType, signal = null) {
 
       const businessItems = doc.querySelectorAll('.rstinfo-table__business-item');
       if (businessItems.length > 0) {
-        const itemsArray = [];
+        const hoursArray = [];
+        const closedArray = [];
         businessItems.forEach(item => {
           const txt = item.textContent.trim().replace(/\s+/g, ' ');
-          if (txt) itemsArray.push(txt);
+          if (!txt) return;
+          // 「定休日」テキストを含むブロックは定休日として分離
+          if (txt.includes('定休日')) {
+            // 「定休日」の前にある曜日部分を抽出
+            const closedDayMatch = txt.match(/^([月火水木金土日・\s]+)定休日/);
+            if (closedDayMatch) {
+              closedArray.push(closedDayMatch[1].trim());
+            }
+          } else {
+            hoursArray.push(txt);
+          }
         });
-        tHours = itemsArray.join(' | ');
+        // 営業時間は定休日ブロックを除いたもののみ
+        tHours = hoursArray.join(' | ');
+        // 定休日ブロックから取得できた場合は tClosed に優先設定
+        if (closedArray.length > 0) {
+          const closedFromItems = closedArray.join('・');
+          tClosed = tClosed ? closedFromItems + ' ' + tClosed : closedFromItems;
+        }
+      }
+
+      // 営業時間ブロック全体のテキストに「年中無休」「無休」が含まれる場合は定休日を「無休」に設定
+      if (!tClosed) {
+        const allBusinessText = Array.from(doc.querySelectorAll('.rstinfo-table__business-item'))
+          .map(el => el.textContent)
+          .join(' ');
+        if (/年中無休|無休/.test(allBusinessText)) {
+          tClosed = '無休';
+        }
       }
 
       doc.querySelectorAll('.rstinfo-table__table th, table th').forEach(th => {
@@ -348,6 +443,11 @@ async function fetchAndParseDetail(link, siteType, signal = null) {
         if (t.includes('営業時間') && !tHours) tHours = th.nextElementSibling?.textContent?.trim() || '';
         if (t.includes('定休日')) tClosed = th.nextElementSibling?.textContent?.trim() || '';
       });
+
+      // 定休日テキストに「年中無休」が含まれる場合は正規化
+      if (tClosed && /年中無休/.test(tClosed)) {
+        tClosed = '無休';
+      }
 
       if (!realPhone && !reservePhone) {
         const telAnchor = doc.querySelector('a[href^="tel:"]');
