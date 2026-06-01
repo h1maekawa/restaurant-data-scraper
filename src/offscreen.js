@@ -50,17 +50,129 @@ function extractMetadata(doc, siteType) {
   return meta;
 }
 
+const DAY_MAP = {
+  '月曜日':'月','火曜日':'火','水曜日':'水','木曜日':'木',
+  '金曜日':'金','土曜日':'土','日曜日':'日',
+  'Monday':'月','Tuesday':'火','Wednesday':'水','Thursday':'木',
+  'Friday':'金','Saturday':'土','Sunday':'日',
+  'Mon':'月','Tue':'火','Wed':'水','Thu':'木','Fri':'金','Sat':'土','Sun':'日'
+};
+
+const ALL_DAYS = ['月','火','水','木','金','土','日'];
+
+// 定休日フィールドに出力してはいけない不要文言パターン
+const HOLIDAY_NOISE_PATTERNS = [
+  /お問い?合わせ(ください|下さい)?/g,
+  /詳細はお電話(にて)?/g,
+  /コロナ.*?(\n|$)/g,
+  /感染症.*?(\n|$)/g,
+  /変更(に)?なる場合.*?(\n|$)/g,
+  /変更の可能性.*?(\n|$)/g,
+  /ご確認ください/g,
+  /店舗にお問い?合わせ/g,
+  /予告なく.*?(\n|$)/g,
+  /※.*?(\n|$)/g,
+  /\(※.*?\)/g,
+  /（※.*?）/g,
+];
+
+function normalizeDayText(text) {
+  if (!text) return '';
+  let result = text;
+  for (const [long, short] of Object.entries(DAY_MAP)) {
+    result = result.replaceAll(long, short);
+  }
+  return result;
+}
+
+function extractDaySet(text) {
+  if (!text) return new Set();
+  const normalized = normalizeDayText(text);
+  const daySet = new Set();
+
+  // パターン1: 月〜金、月-金 などの範囲指定
+  const rangePattern = /([月火水木金土日])[〜~－\-ー]([月火水木金土日])/g;
+  let m;
+  while ((m = rangePattern.exec(normalized)) !== null) {
+    const start = ALL_DAYS.indexOf(m[1]);
+    const end   = ALL_DAYS.indexOf(m[2]);
+    if (start !== -1 && end !== -1) {
+      for (let i = start; i <= end; i++) daySet.add(ALL_DAYS[i]);
+    }
+  }
+
+  // パターン2: 範囲部分を除いた残りから個別曜日を抽出
+  const withoutRange = normalized.replace(/[月火水木金土日][〜~－\-ー][月火水木金土日]/g, '  ');
+  const listPattern = /[月火水木金土日]/g;
+  let m2;
+  while ((m2 = listPattern.exec(withoutRange)) !== null) {
+    daySet.add(m2[0]);
+  }
+
+  return daySet;
+}
+
+function cleanHolidayText(text) {
+  if (!text) return '';
+  let result = text;
+  for (const pattern of HOLIDAY_NOISE_PATTERNS) {
+    result = result.replace(pattern, '');
+  }
+  return result.trim();
+}
+
+function resolveFinalHoliday(rawHolidayText, businessDaySet) {
+  const cleaned = cleanHolidayText(rawHolidayText);
+
+  if (/無休|年中無休/.test(cleaned)) return '無休';
+  if (/^[\-－ー\s]+$/.test(cleaned)) return '-';
+
+  const holidayDaySet = extractDaySet(cleaned);
+  if (holidayDaySet.size > 0) {
+    const holidayDays = ALL_DAYS.filter(d => holidayDaySet.has(d));
+    // 定休日と営業日が完全一致している場合は逆転の可能性 → 逆算で上書き
+    if (businessDaySet && businessDaySet.size > 0) {
+      const overlap = holidayDays.filter(d => businessDaySet.has(d));
+      if (overlap.length === holidayDays.length) {
+        const calculated = ALL_DAYS.filter(d => !businessDaySet.has(d));
+        if (calculated.length > 0 && calculated.length < 7) return calculated.join('・');
+        if (calculated.length === 0) return '無休';
+      }
+    }
+    return holidayDays.join('・');
+  }
+
+  if (businessDaySet && businessDaySet.size > 0) {
+    const calculated = ALL_DAYS.filter(d => !businessDaySet.has(d));
+    if (calculated.length > 0 && calculated.length < 7) {
+      return calculated.join('・');
+    }
+    if (calculated.length === 0) return '無休';
+  }
+
+  return '';
+}
+
+// 営業日の最終出力値を確定する関数
+function resolveFinalBusinessDays(rawBusinessDayText) {
+  const daySet = extractDaySet(rawBusinessDayText);
+  if (daySet.size > 0) {
+    return ALL_DAYS.filter(d => daySet.has(d)).join('・');
+  }
+  return '';
+}
+
 function normalizeBusinessHours(hoursText) {
   if (!hoursText) {
-    return { normalized_closed_days: '', business_days: '', open_time: '', close_time: '' };
+    return { holiday: '', businessDays: '', openTime: '', closeTime: '' };
   }
 
   const text = hoursText.replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
 
-  let normalized_closed_days = '';
+  let rawHolidayText = '';
   const closedMatch = text.match(/【定休日】([^【]+)/);
   if (closedMatch) {
-    normalized_closed_days = closedMatch[1].trim();
+    rawHolidayText = closedMatch[1].trim();
   } else {
     const closedPatterns = [
       /定休日[：:]\s*([^\s。、]+)/,
@@ -69,7 +181,7 @@ function normalizeBusinessHours(hoursText) {
     ];
     for (const pat of closedPatterns) {
       const m = text.match(pat);
-      if (m) { normalized_closed_days = m[1].trim(); break; }
+      if (m) { rawHolidayText = m[1].trim(); break; }
     }
   }
 
@@ -81,7 +193,7 @@ function normalizeBusinessHours(hoursText) {
     hoursBlock = text;
   }
 
-  let business_days = '';
+  let rawBusinessDayText = '';
   const dayPatterns = [
     /([月火水木金土日・〜～\-–―,、]+曜日?[^0-9（(（：:〜～\-–―]{0,10})/,
     /(月[〜～\-–―]金|月[〜～\-–―]土|月[〜～\-–―]日|火[〜～\-–―]日)/,
@@ -89,27 +201,37 @@ function normalizeBusinessHours(hoursText) {
   ];
   for (const pat of dayPatterns) {
     const m = hoursBlock.match(pat);
-    if (m) { business_days = m[1].trim(); break; }
+    if (m) { rawBusinessDayText = m[1].trim(); break; }
   }
 
-  let open_time = '';
-  let close_time = '';
+  let finalOpenTime = '';
+  let finalCloseTime = '';
 
   const timeRangePattern = /(\d{1,2}[：:]\d{2})\s*[〜～\-–―]\s*(\d{1,2}[：:]\d{2})/;
   const timeMatch = hoursBlock.match(timeRangePattern);
   if (timeMatch) {
-    open_time = timeMatch[1].replace('：', ':');
-    close_time = timeMatch[2].replace('：', ':');
+    finalOpenTime = timeMatch[1].replace('：', ':');
+    finalCloseTime = timeMatch[2].replace('：', ':');
   } else {
     const singleTime = hoursBlock.match(/(\d{1,2}[：:]\d{2})/);
     if (singleTime) {
-      open_time = singleTime[1].replace('：', ':');
+      finalOpenTime = singleTime[1].replace('：', ':');
     }
   }
 
-  if (close_time === '24:00' || close_time === '0:00') close_time = '24:00';
+  if (finalCloseTime === '24:00' || finalCloseTime === '0:00') finalCloseTime = '24:00';
 
-  return { normalized_closed_days, business_days, open_time, close_time };
+  // 定休日・営業日の最終値を確定
+  const businessDaySet   = extractDaySet(rawBusinessDayText);
+  const finalHoliday     = resolveFinalHoliday(rawHolidayText, businessDaySet);
+  const finalBusinessDays = ALL_DAYS.filter(d => businessDaySet.has(d)).join('・');
+
+  return {
+    holiday:      finalHoliday,      // 定休日（曜日 or 無休 or - or 空欄）
+    businessDays: finalBusinessDays, // 営業日（曜日 or 空欄）
+    openTime:     finalOpenTime,     // 営業開始時間（既存のまま）
+    closeTime:    finalCloseTime,    // 営業終了時間（既存のまま）
+  };
 }
 
 function tabelogGetLinks(doc, baseUrl) {
@@ -188,9 +310,9 @@ function hotpepperGetNextUrl(doc, baseUrl) {
   return null;
 }
 
-async function fetchAndParseDetail(link, siteType) {
+async function fetchAndParseDetail(link, siteType, signal = null) {
   try {
-    const res = await fetch(link, { signal: AbortSignal.timeout(10000) });
+    const res = await fetch(link, { signal: signal || AbortSignal.timeout(10000) });
     const html = await res.text();
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
@@ -348,7 +470,7 @@ async function fetchAndParseDetail(link, siteType) {
           if (!telUrl) telUrl = (link.endsWith('/') ? link : link + '/') + 'tel/';
 
           await sleep(500);
-          const telRes = await fetch(telUrl, { signal: AbortSignal.timeout(8000) });
+          const telRes = await fetch(telUrl, { signal: signal || AbortSignal.timeout(8000) });
           const telHtml = await telRes.text();
           const telDoc = new DOMParser().parseFromString(telHtml, 'text/html');
           const telNode = telDoc.querySelector('.telephoneNumber')
@@ -442,10 +564,10 @@ async function runCrawlTask(tabId) {
         if (!task.running) break;
         const chunk = links.slice(i, i + CHUNK_SIZE);
 
-        await Promise.all(chunk.map(async (link) => {
-          if (!task.running) return;
+        for (const link of chunk) {
+          if (!task.running) break;
           try {
-            const detail = await fetchAndParseDetail(link, siteType);
+            const detail = await fetchAndParseDetail(link, siteType, task.abortController?.signal);
             if (detail && detail.name) {
               const normalized = normalizeBusinessHours(detail.business_hours || '');
               const finalDetail = {
@@ -453,10 +575,10 @@ async function runCrawlTask(tabId) {
                 genre: detail.genre,
                 address: detail.address,
                 phone: detail.phone || '',
-                regular_holiday: normalized.normalized_closed_days || '無休',
-                business_days: normalized.business_days || '',
-                open_time: normalized.open_time || '',
-                close_time: normalized.close_time || '',
+                regular_holiday: normalized.holiday,
+                business_days: normalized.businessDays || '',
+                open_time: normalized.openTime || '',
+                close_time: normalized.closeTime || '',
                 url: detail.url,
                 source: detail.source
               };
@@ -470,9 +592,10 @@ async function runCrawlTask(tabId) {
               });
             }
           } catch (err) {
+            if (err.name === 'AbortError') break;
             console.error('詳細パース失敗:', err);
           }
-        }));
+        }
 
         await sleep(DELAY_BETWEEN_CHUNKS);
       }
@@ -554,13 +677,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const siteType = getSiteType(message.listUrl);
+    const controller = new AbortController();
     activeTasks.set(tabId, {
       running: true,
       tabId,
       listUrl: message.listUrl,
       results: [],
       maxItems: message.maxItems || Infinity,
-      metadata: { media: siteType, area: '', industry: '' }
+      metadata: { media: siteType, area: '', industry: '' },
+      abortController: controller
     });
     runCrawlTask(tabId);
     sendResponse({ ok: true });
@@ -569,9 +694,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === 'STOP_CRAWL') {
     const task = activeTasks.get(tabId);
-    if (task) task.running = false;
+    if (task) {
+      task.running = false;
+      task.abortController?.abort();
+    }
     const popularTask = activeTasks.get(tabId + '_popular');
-    if (popularTask) popularTask.running = false;
+    if (popularTask) {
+      popularTask.running = false;
+      popularTask.abortController?.abort();
+    }
     sendResponse({ ok: true });
     return;
   }
@@ -666,14 +797,12 @@ async function extractGenreLinks(listUrl, siteType, tabId) {
       }
 
     } else if (siteType === 'hotpepper') {
-      const inner = doc.querySelector('.jscDropDownSideInner.boxSide');
-      const root = inner || doc;
-      root.querySelectorAll('.reselectionList li a[href]').forEach(a => {
+      doc.querySelectorAll('.reselectionList li a[href]').forEach(a => {
         const href = resolveUrl(a.getAttribute('href') || '', listUrl).split('?')[0].split('#')[0];
         const name = a.textContent.trim().replace(/\s+/g, ' ');
         if (!href || !name) return;
         if (!/hotpepper\.jp/.test(href)) return;
-        if (!/\/G\d+\//.test(href)) return;
+        if (!/\/G\d+/.test(href)) return;
         if (links.some(l => l.url === href)) return;
         links.push({ name, url: href });
       });
@@ -742,13 +871,15 @@ async function runPopularGenreCrawl(tabId, listUrl, maxItemsPerGenre) {
       });
 
       const tempId = `${tabId}_pg_${i}`;
+      const subController = new AbortController();
       activeTasks.set(tempId, {
         running: true,
         tabId,
         listUrl: url,
         results: [],
         maxItems: maxItemsPerGenre,
-        metadata: { media: siteType, area: '', industry: name }
+        metadata: { media: siteType, area: '', industry: name },
+        abortController: subController
       });
 
       await runCrawlTask(tempId);

@@ -10,6 +10,40 @@ function keepAlive() {
 }
 keepAlive();
 
+const crawlState = new Map();
+// crawlState[tabId] = {
+//   running: bool,
+//   logs: [ { time, msg, type } ],
+//   collected: number,
+//   maxItems: number,
+//   page: number,
+//   metadata: {}
+// }
+
+function getState(tabId) {
+  if (!crawlState.has(tabId)) {
+    crawlState.set(tabId, {
+      running: false,
+      logs: [],
+      collected: 0,
+      maxItems: 0,
+      page: 1,
+      metadata: {}
+    });
+  }
+  return crawlState.get(tabId);
+}
+
+function pushLog(tabId, msg, type = 'info') {
+  const state = getState(tabId);
+  const time = new Date().toLocaleTimeString('ja-JP', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  state.logs.push({ time, msg, type });
+  // ログは最大300件
+  if (state.logs.length > 300) state.logs.shift();
+}
+
 const OFFSCREEN_DOCUMENT_PATH = 'src/offscreen.html';
 let isOffscreenReady = false;
 let offscreenReadyResolver = null;
@@ -161,9 +195,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
-    // popup への転送
+    // ログ・状態をメモリに記録してからpopupへ転送
+    const tabId = message.tabId;
+    const payload = message.payload || {};
+    const state = getState(tabId);
+
+    switch (message.type) {
+      case 'PAGE_START':
+        state.running = true;
+        state.page = payload.page || state.page;
+        state.collected = payload.collected || state.collected;
+        pushLog(tabId, `📄 ${payload.siteName || ''}${payload.page}ページ目 開始 (取得済み: ${payload.collected}件)`, 'info');
+        break;
+      case 'PROGRESS':
+        state.running = true;
+        state.collected = payload.collected || state.collected;
+        state.maxItems = payload.maxItems || state.maxItems;
+        state.page = payload.page || state.page;
+        pushLog(tabId, `✅ ${payload.latest}`, 'good');
+        break;
+      case 'INFO':
+        pushLog(tabId, `ℹ️ ${payload.message}`, 'info');
+        break;
+      case 'ERROR':
+        state.running = false;
+        pushLog(tabId, `❌ ${payload.message}`, 'err');
+        break;
+      case 'DONE':
+        state.running = false;
+        state.collected = payload.collected || state.collected;
+        state.metadata = payload.metadata || state.metadata;
+        pushLog(tabId, `🎉 完了！ 合計 ${payload.collected} 件取得`, 'good');
+        break;
+    }
+
     chrome.runtime.sendMessage({
-      tabId: message.tabId, type: message.type, ...message.payload
+      tabId, type: message.type, ...payload
     }).catch(() => { });
     sendResponse({ ok: true });
     return true;
@@ -178,18 +245,52 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.action === 'START_CRAWL') {
-    setupOffscreenDocument().then(() => { chrome.runtime.sendMessage({ target: 'offscreen', ...message }); });
+    const state = getState(message.tabId);
+    state.running = true;
+    state.logs = [];
+    state.collected = 0;
+    state.maxItems = message.maxItems || 0;
+    state.page = 1;
+    state.metadata = {};
+    setupOffscreenDocument().then(() => {
+      chrome.runtime.sendMessage({ target: 'offscreen', ...message });
+    });
     sendResponse({ ok: true });
     return true;
   }
 
   if (message.action === 'START_POPULAR_GENRE_CRAWL') {
-    setupOffscreenDocument().then(() => { chrome.runtime.sendMessage({ target: 'offscreen', ...message }); });
+    const state = getState(message.tabId);
+    state.running = true;
+    state.logs = [];
+    state.collected = 0;
+    state.maxItems = message.maxItems || 0;
+    state.page = 1;
+    state.metadata = {};
+    setupOffscreenDocument().then(() => {
+      chrome.runtime.sendMessage({ target: 'offscreen', ...message });
+    });
     sendResponse({ ok: true });
     return true;
   }
 
-  if (message.action === 'STOP_CRAWL' || message.action === 'GET_RESULTS') {
+  if (message.action === 'GET_STATE') {
+    const state = getState(message.tabId);
+    sendResponse({ ok: true, state });
+    return true;
+  }
+
+  if (message.action === 'STOP_CRAWL') {
+    const state = getState(message.tabId);
+    state.running = false;
+    pushLog(message.tabId, '⏹ 停止リクエスト送信', 'warn');
+    setupOffscreenDocument().then(() => {
+      chrome.runtime.sendMessage({ target: 'offscreen', ...message }, (res) => { sendResponse(res); });
+    });
+    return true;
+  }
+
+  if (message.action === 'GET_RESULTS') {
     setupOffscreenDocument().then(() => {
       chrome.runtime.sendMessage({ target: 'offscreen', ...message }, (res) => { sendResponse(res); });
     });

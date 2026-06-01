@@ -284,7 +284,15 @@ startBtn.addEventListener('click', async () => {
 // ============================================================
 // 停止
 // ============================================================
-stopBtn.addEventListener('click', () => {
+stopBtn.addEventListener('click', async () => {
+  if (!currentTabId) {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab) currentTabId = tab.id;
+  }
+  if (!currentTabId) {
+    addLog('停止対象のタブが不明です', 'err');
+    return;
+  }
   chrome.runtime.sendMessage({ action: 'STOP_CRAWL', tabId: currentTabId });
   addLog('⏹ 停止リクエスト送信', 'warn');
   setStatus('idle', '停止中...', '');
@@ -358,24 +366,44 @@ popularGenreBtn.addEventListener('click', async () => {
   }
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (tab) {
-    currentTabId = tab.id;
-    chrome.runtime.sendMessage({ action: 'GET_RESULTS', tabId: currentTabId }, res => {
-      if (res?.results?.length) {
-        allResults = res.results;
-        metadata = res.metadata || metadata;
-        renderPreview(allResults);
-        dlBtn.disabled = false;
-        if (!res.running) {
-          setStatus('done', `前回の結果 ${allResults.length} 件`, 'CSVダウンロード可能');
-          addLog(`前回の取得結果を復元: ${allResults.length} 件`, 'info');
-        } else {
-          setButtons(true);
-          setStatus('running', 'クロール実行中...', '');
-          addLog('クロール状況を復旧しました', 'info');
-        }
+  if (!tab) return;
+  currentTabId = tab.id;
+
+  // background から状態とログを復元
+  chrome.runtime.sendMessage({ action: 'GET_STATE', tabId: currentTabId }, res => {
+    if (!res?.state) return;
+    const state = res.state;
+
+    // ログを復元
+    if (state.logs?.length) {
+      state.logs.forEach(({ time, msg, type }) => {
+        const line = document.createElement('div');
+        line.className = `log-line ${type}`;
+        line.textContent = `[${time}] ${msg}`;
+        logScroll.appendChild(line);
+      });
+      logScroll.scrollTop = logScroll.scrollHeight;
+    }
+
+    // 実行中なら停止ボタンを有効化
+    if (state.running) {
+      setButtons(true);
+      setStatus('running', `クロール実行中... ${state.collected}件`, `${state.page}ページ目`);
+      updateProgress(state.collected, state.maxItems === 0 ? Infinity : state.maxItems);
+    }
+  });
+
+  // 結果を復元
+  chrome.runtime.sendMessage({ action: 'GET_RESULTS', tabId: currentTabId }, res => {
+    if (res?.results?.length) {
+      allResults = res.results;
+      metadata = res.metadata || metadata;
+      renderPreview(allResults);
+      dlBtn.disabled = false;
+      if (!res.running) {
+        setStatus('done', `前回の結果 ${allResults.length} 件`, 'CSVダウンロード可能');
         updateProgress(allResults.length, maxItems);
       }
-    });
-  }
+    }
+  });
 })();
